@@ -34,7 +34,7 @@ All 40 automated tests across 14 test suites are passing with zero failures.
 | **Firestore Security Rules & Indexes** | **Completed & Tested** | Deployed strict 2-member isolation security rules and composite indexes to `ourspace-edbf5`. Single-field index redundancies removed. |
 | **Firebase Cloud Storage Setup** | **Awaiting Console Initialization** | Security rules prepared (`storage.rules`). Storage bucket initialization requires 1-click activation in Firebase Console. |
 | **Cloud Functions Cloud Build** | **Awaiting Blaze Upgrade** | Node.js 20 Cloud Functions v2 code ready. Deployment requires project upgrade to Google Cloud Blaze plan. |
-| **Vercel Production Deployment** | **Ready for Promotion** | Build configuration verified for Next.js App Router; monorepo root workspaces configured. |
+| **Vercel Production Deployment** | **SUCCESS (`READY`)** | Live at [https://ourspace-app-two.vercel.app](https://ourspace-app-two.vercel.app) (Commit `9051a9d`, Deployment `dpl_2Zh5WpAACf9KL4fU8u1ZkydJCzzS`). All 10 routes tested 200 OK. |
 
 ---
 

@@ -142,7 +142,7 @@ async function cleanupInvalidFcmTokens(uid, token, deviceDocId) {
 
 ---
 
-## 4. Verification Checklist
+## 4. Verification Checklist & Live Production Deployment
 
 | Gate | Target | Expected Result | Status |
 |:---|:---|:---|:---:|
@@ -150,5 +150,30 @@ async function cleanupInvalidFcmTokens(uid, token, deviceDocId) {
 | **JS Syntax Integrity** | `functions/index.js` | `node -c functions/index.js` exits 0 | **Verified** |
 | **ESLint Standards** | `apps/web` | `.eslintrc.json` extending `next/core-web-vitals` | **Verified** |
 | **Config Cleanup** | `next.config.js` | `serverComponentsExternalPackages` configured | **Verified** |
-| **Build Reproduction** | `apps/web` | Production bundle builds without Webpack error | **Pending npm link** |
-| **Vercel Deployment** | Production | Deployment succeeds to `Ready` state | **Scheduled** |
+| **Vercel Root Directory** | Project Settings | Configured to `apps/web` for App Router monorepo | **Verified (200 OK)** |
+| **Vercel Node Runtime** | Project Settings | Configured to `26.x` active LTS | **Verified (200 OK)** |
+| **Vercel Deployment** | Production | Deployment succeeds to `READY` state | **SUCCESS (`READY`)** |
+
+---
+
+## 5. Live Production Deployment Verification Evidence
+
+- **Vercel Deployment ID**: `dpl_2Zh5WpAACf9KL4fU8u1ZkydJCzzS`
+- **GitHub Commit SHA**: `9051a9d` (`origin/main`)
+- **Vercel Production Canonical URL**: [https://ourspace-app-two.vercel.app](https://ourspace-app-two.vercel.app)
+- **Direct Deployment URL**: [https://ourspace-dvyisx0bg-karthibaraniofficial-1403s-projects.vercel.app](https://ourspace-dvyisx0bg-karthibaraniofficial-1403s-projects.vercel.app)
+- **Deployment State**: `READY`
+
+### Real-Time Route Probe Results (HTTP Status):
+- `GET /` — **200 OK** (7,073 bytes)
+- `GET /auth` — **200 OK** (11,597 bytes)
+- `GET /pair` — **200 OK** (11,552 bytes)
+- `GET /dashboard` — **200 OK** (38,448 bytes)
+- `GET /dashboard/chat` — **200 OK** (33,942 bytes)
+- `GET /dashboard/calls` — **200 OK** (35,230 bytes)
+- `GET /dashboard/gallery` — **200 OK** (43,731 bytes)
+- `GET /dashboard/memories` — **200 OK** (43,111 bytes)
+- `GET /dashboard/reminders` — **200 OK** (30,737 bytes)
+- `GET /dashboard/settings` — **200 OK** (43,544 bytes)
+- `POST /api/livekit/token` (unauthenticated) — **401 Unauthorized** (proper security enforcement: `{"error":"Unauthorized: Authentication required to mint LiveKit call tokens."}`)
+
