@@ -21,6 +21,9 @@ import { GiphyPickerModal } from '@/components/chat/GiphyPickerModal';
 import { EmojiPickerModal } from '@/components/chat/EmojiPickerModal';
 import { MediaViewerModal } from '@/components/gallery/MediaViewerModal';
 import { Button } from '@/components/ui/Button';
+import { isUserOnline, formatPresenceStatus } from '@ourspace/shared';
+import { cn } from '@/lib/utils';
+
 
 export default function ChatPage() {
   const { user, space, partner } = useAuthStore();
@@ -80,6 +83,7 @@ export default function ChatPage() {
           <div className="relative">
             {partner?.avatar_url ? (
               <img
+                key={partner.avatar_url}
                 src={partner.avatar_url}
                 alt={partner.display_name}
                 className="w-10 h-10 rounded-2xl object-cover ring-2 ring-rose-400"
@@ -89,7 +93,14 @@ export default function ChatPage() {
                 {partner?.display_name?.charAt(0) || 'P'}
               </div>
             )}
-            <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white dark:border-stone-900" />
+            <span
+              className={cn(
+                'absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-stone-900 transition-colors',
+                isUserOnline(partner?.last_seen_at || partner?.updated_at, partner?.is_online)
+                  ? 'bg-emerald-500'
+                  : 'bg-stone-400 dark:bg-zinc-600'
+              )}
+            />
           </div>
 
           <div>
@@ -97,12 +108,31 @@ export default function ChatPage() {
               {partner?.display_name || 'My Partner'}
               <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
             </h3>
-            <p className="text-[11px] text-stone-400 flex items-center gap-1">
-              <Radio className="w-2.5 h-2.5 text-emerald-500 animate-pulse" />
-              <span>Online • Encrypted 2-Person Sanctuary</span>
-            </p>
+            <div className="text-[11px] text-stone-400 flex items-center gap-1.5">
+              {isUserOnline(partner?.last_seen_at || partner?.updated_at, partner?.is_online) ? (
+                <>
+                  <Radio className="w-2.5 h-2.5 text-emerald-500 animate-pulse" />
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">Online</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-stone-400 dark:bg-zinc-500" />
+                  <span>{formatPresenceStatus(partner?.last_seen_at || partner?.updated_at, partner?.is_online).label}</span>
+                </>
+              )}
+              {partner?.status_message && (
+                <>
+                  <span className="text-stone-300 dark:text-zinc-600">•</span>
+                  <span className="truncate italic text-stone-500 dark:text-zinc-400 flex items-center gap-1 max-w-[200px]">
+                    {partner.status_emoji && <span>{partner.status_emoji}</span>}
+                    <span>&ldquo;{partner.status_message}&rdquo;</span>
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         </div>
+
 
         {/* Top Actions: Search, Pinned, Calling */}
         <div className="flex items-center gap-2">

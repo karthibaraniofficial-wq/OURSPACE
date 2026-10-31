@@ -39,11 +39,17 @@ service firebase.storage {
       allow read, write, delete: if isAuthenticated() && request.auth.uid == uid;
     }
 
-    // User profile pictures
-    match /users/{uid}/profile/{fileName} {
+    // User profile pictures & avatars
+    match /users/{uid}/profile/{allFiles=**} {
       allow read: if isAuthenticated();
       allow write, delete: if isAuthenticated() && request.auth.uid == uid && isValidFileSize();
     }
+
+    match /users/{uid}/avatars/{allFiles=**} {
+      allow read: if isAuthenticated();
+      allow write, delete: if isAuthenticated() && request.auth.uid == uid && isValidFileSize();
+    }
+
 
     // Default deny for all other paths
     match /{allPaths=**} {

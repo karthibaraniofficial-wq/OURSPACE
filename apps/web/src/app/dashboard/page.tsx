@@ -18,10 +18,11 @@ import {
 import { useAuthStore } from '@/store/useAuthStore';
 import { useChatStore } from '@/store/useChatStore';
 import { useCallStore } from '@/store/useCallStore';
-import { calculateDaysTogether, getCountdown, formatChatTimestamp } from '@ourspace/shared';
+import { calculateDaysTogether, getCountdown, formatChatTimestamp, isUserOnline, formatPresenceStatus } from '@ourspace/shared';
 import { subscribeToFirestoreReminders } from '@/lib/firebase/firestore';
 import type { Reminder } from '@ourspace/types';
 import { Button } from '@/components/ui/Button';
+
 
 export default function DashboardPage() {
   const { user, space, partner } = useAuthStore();
@@ -45,10 +46,9 @@ export default function DashboardPage() {
   const nextEventCountdown = nextEvent ? getCountdown(nextEvent.due_date) : null;
 
   const isPartnerOnline = React.useMemo(() => {
-    if (!partner?.updated_at) return false;
-    const lastActiveMs = new Date(partner.updated_at).getTime();
-    return !isNaN(lastActiveMs) && Date.now() - lastActiveMs < 5 * 60 * 1000;
-  }, [partner?.updated_at]);
+    return isUserOnline(partner?.last_seen_at || partner?.updated_at, partner?.is_online);
+  }, [partner?.last_seen_at, partner?.updated_at, partner?.is_online]);
+
 
   const daysTogether = calculateDaysTogether(space?.couple_started_at);
 
@@ -131,7 +131,9 @@ export default function DashboardPage() {
             ) : (
               <span className="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-zinc-400 font-medium bg-stone-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full border border-stone-200/60 dark:border-zinc-700">
                 <span className="w-1.5 h-1.5 rounded-full bg-stone-400 dark:bg-zinc-500" />
-                {partner ? 'Offline' : 'Not paired'}
+                {partner
+                  ? formatPresenceStatus(partner.last_seen_at || partner.updated_at, partner.is_online).label
+                  : 'Not paired'}
               </span>
             )}
           </div>
@@ -140,6 +142,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-3">
               {partner.avatar_url ? (
                 <img
+                  key={partner.avatar_url}
                   src={partner.avatar_url}
                   alt={partner.display_name}
                   className="w-12 h-12 rounded-2xl object-cover ring-2 ring-rose-400"
@@ -153,14 +156,16 @@ export default function DashboardPage() {
                 <h4 className="text-sm font-bold text-stone-800 dark:text-zinc-100 truncate">
                   {partner.display_name}
                 </h4>
-                <p className="text-xs text-stone-500 truncate mt-0.5">
-                  &ldquo;{partner.status_message || 'In our sanctuary'}&rdquo;
+                <p className="text-xs text-stone-500 truncate mt-0.5 flex items-center gap-1">
+                  {partner.status_emoji && <span>{partner.status_emoji}</span>}
+                  <span className="truncate">&ldquo;{partner.status_message || 'In our sanctuary'}&rdquo;</span>
                 </p>
               </div>
             </div>
           ) : (
             <p className="text-xs text-stone-400">Share your invite code to link accounts.</p>
           )}
+
 
           <div className="mt-4 pt-3 border-t border-rose-100/60 dark:border-zinc-800 flex justify-end">
             <Link

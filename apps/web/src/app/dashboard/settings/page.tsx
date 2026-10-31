@@ -35,6 +35,9 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { playChime, ACCENT_PRESETS, type ChimeProfile } from '@ourspace/shared';
 import { cn } from '@/lib/utils';
+import { uploadProfilePictureToStorage } from '@/lib/firebase/storage';
+import { isFirebaseConfigured } from '@/lib/firebase/firebase';
+
 
 const SOUND_PROFILES: { id: ChimeProfile; name: string; description: string }[] = [
   { id: 'soft-bell', name: 'Soft Bell Chime', description: 'Gentle dual sine overtone' },
@@ -72,9 +75,15 @@ export default function SettingsPage() {
   const [displayName, setDisplayName] = useState(user?.display_name || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [statusMessage, setStatusMessage] = useState(user?.status_message || '');
+  const [statusEmoji, setStatusEmoji] = useState(user?.status_emoji || '❤️');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
   const [selectedAccent, setSelectedAccent] = useState(user?.accent_color || '#f43f5e');
   const [showOnlineStatus, setShowOnlineStatus] = useState(true);
+
+  // Avatar Upload State
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   // Sound & Notifications
   const [selectedSound, setSelectedSound] = useState<ChimeProfile>('soft-bell');
@@ -96,17 +105,63 @@ export default function SettingsPage() {
     playChime(profile);
   };
 
-  const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setAvatarUrl(dataUrl);
-      updateProfile({ avatar_url: dataUrl });
-    };
-    reader.readAsDataURL(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setAvatarError(null);
+
+    // Validate MIME type
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('Please select a valid image file (JPEG, PNG, WebP, etc.).');
+      return;
+    }
+
+    // Validate size (10MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      setAvatarError('Profile picture must be under 10MB.');
+      return;
+    }
+
+    if (!user?.id) {
+      setAvatarError('You must be signed in to upload a profile picture.');
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    setAvatarUploadProgress(0);
+
+    try {
+      if (isFirebaseConfigured()) {
+        const downloadUrl = await uploadProfilePictureToStorage(
+          user.id,
+          file,
+          (pct) => setAvatarUploadProgress(pct)
+        );
+        setAvatarUrl(downloadUrl);
+        await updateProfile({ avatar_url: downloadUrl });
+        setSaveSuccess(true);
+        playChime('soft-bell');
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        // Fallback for local demo preview
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const dataUrl = reader.result as string;
+          setAvatarUrl(dataUrl);
+          await updateProfile({ avatar_url: dataUrl });
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 3000);
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to upload profile picture. Please try again.';
+      setAvatarError(msg);
+    } finally {
+      setIsUploadingAvatar(false);
+    }
   };
 
   const handleSelectAccent = (hex: string) => {
@@ -133,6 +188,7 @@ export default function SettingsPage() {
       display_name: displayName.trim() || user?.display_name || 'My Love',
       bio: bio.trim() || null,
       status_message: statusMessage.trim() || 'Connected with you',
+      status_emoji: statusEmoji || null,
       avatar_url: avatarUrl || null,
       accent_color: selectedAccent,
     });
@@ -140,6 +196,13 @@ export default function SettingsPage() {
     setSaveSuccess(true);
     playChime('modern-ping');
     setTimeout(() => setSaveSuccess(false), 3000);
+  };
+
+  const handleClearStatus = () => {
+    setStatusMessage('');
+    updateProfile({ status_message: 'Connected with you' });
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
   };
 
   const handleConfirmUnpair = async () => {
@@ -168,6 +231,18 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {avatarError && (
+        <div className="p-3.5 rounded-2xl bg-rose-50 text-rose-700 text-xs font-bold border border-rose-200 flex items-center justify-between gap-2 animate-in fade-in">
+          <span>{avatarError}</span>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="px-2.5 py-1 rounded-xl bg-rose-600 text-white text-[11px] font-semibold hover:bg-rose-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* 1. PROFILE & IDENTITY CUSTOMIZATION */}
       <div className="p-6 rounded-3xl glass-panel border border-rose-200/50 flex flex-col gap-5">
         <div className="flex items-center gap-2 pb-3 border-b border-rose-100/60 dark:border-zinc-800">
@@ -180,7 +255,7 @@ export default function SettingsPage() {
         {/* Avatar Editor */}
         <div className="flex flex-col sm:flex-row items-center gap-5">
           <div className="relative group">
-            <div className="w-24 h-24 rounded-3xl overflow-hidden bg-rose-100 flex items-center justify-center ring-4 ring-rose-400/40 shadow-lg">
+            <div className="w-24 h-24 rounded-3xl overflow-hidden bg-rose-100 flex items-center justify-center ring-4 ring-rose-400/40 shadow-lg relative">
               {avatarUrl ? (
                 <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
               ) : (
@@ -188,11 +263,20 @@ export default function SettingsPage() {
                   {displayName.charAt(0) || 'U'}
                 </div>
               )}
+
+              {/* Uploading Spinner Overlay */}
+              {isUploadingAvatar && (
+                <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex flex-col items-center justify-center text-white">
+                  <RotateCw className="w-6 h-6 animate-spin text-rose-400" />
+                  <span className="text-[10px] font-bold mt-1">{avatarUploadProgress}%</span>
+                </div>
+              )}
             </div>
 
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="absolute -bottom-2 -right-2 p-2 rounded-2xl bg-rose-500 text-white shadow-md hover:scale-105 active:scale-95 transition-all"
+              disabled={isUploadingAvatar}
+              className="absolute -bottom-2 -right-2 p-2 rounded-2xl bg-rose-500 text-white shadow-md hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
               title="Upload photo"
             >
               <Camera className="w-4 h-4" />
@@ -254,16 +338,50 @@ export default function SettingsPage() {
             placeholder="Your name or nickname..."
           />
 
-          <Input
-            label="Status Message"
-            value={statusMessage}
-            onChange={(e) => setStatusMessage(e.target.value)}
-            placeholder="e.g. Thinking of you 🌸"
-          />
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-stone-700 dark:text-zinc-200">
+                Status Message
+              </label>
+              {statusMessage && (
+                <button
+                  type="button"
+                  onClick={handleClearStatus}
+                  className="text-[10px] text-stone-400 hover:text-rose-500 underline"
+                >
+                  Clear Status
+                </button>
+              )}
+            </div>
+            <Input
+              value={statusMessage}
+              onChange={(e) => setStatusMessage(e.target.value)}
+              placeholder="e.g. Thinking of you 🌸"
+            />
+          </div>
         </div>
 
-        {/* Quick Status Pill Selector */}
-        <div className="flex flex-col gap-1.5">
+        {/* Status Emoji Selector & Quick Status Suggestions */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-stone-500">Status Emoji:</span>
+            {['❤️', '☕', '🎧', '✨', '🌸', '✈️', '💤', '🍳'].map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => setStatusEmoji(emoji)}
+                className={cn(
+                  'w-7 h-7 rounded-lg text-sm flex items-center justify-center transition-all',
+                  statusEmoji === emoji
+                    ? 'bg-rose-100 ring-2 ring-rose-400 scale-110'
+                    : 'hover:bg-stone-100 dark:hover:bg-zinc-800'
+                )}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+
           <label className="text-[11px] font-semibold text-stone-500">Quick Status Suggestions</label>
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
             {QUICK_STATUSES.map((qs) => (
@@ -278,6 +396,7 @@ export default function SettingsPage() {
             ))}
           </div>
         </div>
+
 
         {/* Short Biography */}
         <div>

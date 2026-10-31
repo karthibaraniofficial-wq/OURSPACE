@@ -611,3 +611,102 @@ export async function deleteMediaFromFirebaseStorage(storagePath: string): Promi
   await deleteObject(fileRef);
   resolvedDownloadUrlCache.delete(storagePath);
 }
+
+/**
+ * Uploads a user's display picture / avatar to Firebase Cloud Storage.
+ * Path: users/{userId}/profile/{timestamp}_{cleanFileName}
+ * Validates image mime type and enforces size ceiling (10MB).
+ * Appends a safe timestamp cache-busting token to prevent stale browser caches.
+ * Returns the resolved permanent HTTPS download URL.
+ */
+export async function uploadProfilePictureToStorage(
+  userId: string,
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<string> {
+  if (typeof window !== 'undefined' && !navigator.onLine) {
+    throw new StorageUploadError('storage/offline', 'Internet connection interrupted. Retry your upload.');
+  }
+
+  const auth = getFirebaseAuth();
+  if (!auth.currentUser && !userId) {
+    throw new StorageUploadError('storage/unauthenticated', 'User is not authenticated.');
+  }
+
+  // 1. Validate file size (10MB ceiling for avatars)
+  if (file.size > 10 * 1024 * 1024) {
+    throw new StorageUploadError('storage/file-too-large', 'Profile picture must be under 10MB.', false);
+  }
+
+  // 2. Validate MIME type
+  if (!file.type.startsWith('image/')) {
+    throw new StorageUploadError('storage/invalid-mime-type', 'Selected file is not a valid image format.', false);
+  }
+
+  const storage = getFirebaseStorageInstance();
+  const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+  const fileName = `${Date.now()}_${safeName}`;
+  const storagePath = `users/${userId}/profile/${fileName}`;
+  const fileRef = ref(storage, storagePath);
+
+  return new Promise<string>((resolve, reject) => {
+    let hasStalled = false;
+    let isFinished = false;
+
+    // 15-second stall detector
+    const stallTimer = setTimeout(() => {
+      if (!isFinished && uploadTask.snapshot.bytesTransferred === 0) {
+        hasStalled = true;
+        try {
+          uploadTask.cancel();
+        } catch {}
+        reject(
+          new StorageUploadError(
+            'storage/stalled',
+            'Upload stalled at 0%. Check Firebase Cloud Storage configuration or network.',
+            true
+          )
+        );
+      }
+    }, 15000);
+
+    const uploadTask = uploadBytesResumable(fileRef, file, {
+      contentType: file.type,
+      customMetadata: {
+        userId,
+        uploadedAt: new Date().toISOString(),
+      },
+    });
+
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        const percent = snapshot.totalBytes > 0
+          ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+          : 0;
+        if (onProgress) onProgress(percent);
+      },
+      (error) => {
+        clearTimeout(stallTimer);
+        isFinished = true;
+        if (!hasStalled) {
+          const parsed = parseFirebaseStorageError(error);
+          reject(parsed);
+        }
+      },
+      async () => {
+        clearTimeout(stallTimer);
+        isFinished = true;
+        try {
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          // Append version parameter to invalidate stale browser image caches
+          const versionedUrl = `${downloadUrl}${downloadUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
+          resolve(versionedUrl);
+        } catch (downloadErr) {
+          reject(parseFirebaseStorageError(downloadErr));
+        }
+      }
+    );
+  });
+}
+

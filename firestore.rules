@@ -21,11 +21,24 @@ service cloud.firestore {
       return isAuthenticated() && exists(/databases/$(database)/documents/privateSpaces/$(spaceId)/members/$(request.auth.uid));
     }
 
+    function canReadUserProfile(uid) {
+      return isAuthenticated() && (
+        // User reading their own profile
+        request.auth.uid == uid ||
+        // Partner reading co-member profile within authorized private space
+        (resource.data.activeSpaceId != null &&
+         exists(/databases/$(database)/documents/privateSpaces/$(resource.data.activeSpaceId)/members/$(request.auth.uid)))
+      );
+    }
+
     // 1. User Profiles & Devices
     match /users/{uid} {
-      allow read: if isAuthenticated();
-      allow create, update: if isUser(uid);
+      allow read: if canReadUserProfile(uid);
+      allow create: if isUser(uid);
+      allow update: if isUser(uid) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['id', 'email', 'createdAt']);
       allow delete: if isUser(uid);
+
 
       match /devices/{deviceId} {
         allow read, write: if isUser(uid);

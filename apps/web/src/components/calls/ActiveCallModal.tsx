@@ -15,7 +15,9 @@ import {
   Radio,
 } from 'lucide-react';
 import { useCallStore } from '@/store/useCallStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { cn } from '@/lib/utils';
+
 
 interface TrackVideoProps {
   track: any;
@@ -88,8 +90,12 @@ export function ActiveCallModal() {
   const liveKitRoomRef = useRef<any>(null);
   const audioElementsRef = useRef<HTMLAudioElement[]>([]);
 
+  const currentUser = useAuthStore((s) => s.user);
   const isVideo = activeCall?.call_type === 'video';
-  const partner = activeCall?.receiver;
+  const partner = activeCall
+    ? (activeCall.caller?.id === currentUser?.id ? activeCall.receiver : activeCall.caller)
+    : null;
+
 
   // Single source of truth: Connect to LiveKit Room for ALL media (mic, camera, tracks)
   useEffect(() => {

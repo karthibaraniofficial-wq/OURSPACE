@@ -6,13 +6,24 @@ import {
   logoutFromFirebase,
   onFirebaseAuthStateChanged,
   fetchUserProfileFromFirestore,
+  mapFirestoreDataToProfile,
+  updateFirebaseProfile,
 } from '@/lib/firebase/auth';
 import {
   createPrivateSpaceInFirestore,
   joinPrivateSpaceInFirestore,
 } from '@/lib/firebase/firestore';
 import { isFirebaseConfigured, getFirebaseFirestore, getFirebaseAuth } from '@/lib/firebase/firebase';
-import { doc, getDoc, updateDoc, deleteDoc, increment, collection, getDocs, onSnapshot } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  increment,
+  collection,
+  onSnapshot,
+  serverTimestamp,
+} from 'firebase/firestore';
 
 interface AuthState {
   user: Profile | null;
@@ -40,9 +51,12 @@ const DEMO_USER_1: Profile = {
   avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
   bio: 'Forever grateful for every moment with you ❤️',
   status_message: 'Listening to our favorite playlist 🎶',
+  status_emoji: '🎧',
   anniversary_date: '2023-06-15',
   accent_color: '#f43f5e',
   theme_mode: 'light',
+  last_seen_at: new Date().toISOString(),
+  is_online: true,
   created_at: new Date('2023-06-15').toISOString(),
   updated_at: new Date().toISOString(),
 };
@@ -53,9 +67,12 @@ const DEMO_USER_2: Profile = {
   avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
   bio: 'Exploring the world one day at a time with my favorite person ✨',
   status_message: 'Working from home today ☕',
+  status_emoji: '☕',
   anniversary_date: '2023-06-15',
   accent_color: '#8b5cf6',
   theme_mode: 'light',
+  last_seen_at: new Date().toISOString(),
+  is_online: true,
   created_at: new Date('2023-06-15').toISOString(),
   updated_at: new Date().toISOString(),
 };
@@ -70,6 +87,176 @@ const DEMO_SPACE: PrivateSpace = {
   created_at: new Date('2023-06-15').toISOString(),
   updated_at: new Date().toISOString(),
 };
+
+// Module-level real-time subscription lifecycle management
+let userDocUnsubscribe: (() => void) | null = null;
+let partnerDocUnsubscribe: (() => void) | null = null;
+let spaceDocUnsubscribe: (() => void) | null = null;
+let spaceMembersUnsubscribe: (() => void) | null = null;
+let currentPartnerSubscribedUid: string | null = null;
+let currentActiveSpaceId: string | null = null;
+let presenceInterval: NodeJS.Timeout | null = null;
+let authListenerRegistered = false;
+
+function cleanupSubscriptions(options: { keepUser?: boolean } = {}) {
+  if (!options.keepUser && userDocUnsubscribe) {
+    userDocUnsubscribe();
+    userDocUnsubscribe = null;
+  }
+  if (partnerDocUnsubscribe) {
+    partnerDocUnsubscribe();
+    partnerDocUnsubscribe = null;
+    currentPartnerSubscribedUid = null;
+  }
+  if (spaceDocUnsubscribe) {
+    spaceDocUnsubscribe();
+    spaceDocUnsubscribe = null;
+  }
+  if (spaceMembersUnsubscribe) {
+    spaceMembersUnsubscribe();
+    spaceMembersUnsubscribe = null;
+  }
+  currentActiveSpaceId = null;
+
+  if (!options.keepUser && presenceInterval) {
+    clearInterval(presenceInterval);
+    presenceInterval = null;
+  }
+}
+
+function startPresenceHeartbeat(uid: string) {
+  if (typeof window === 'undefined') return;
+  if (presenceInterval) clearInterval(presenceInterval);
+
+  const updatePresence = async (isOnline: boolean) => {
+    try {
+      if (!isFirebaseConfigured()) return;
+      const db = getFirebaseFirestore();
+      await updateDoc(doc(db, 'users', uid), {
+        lastSeenAt: serverTimestamp(),
+        isOnline,
+      });
+    } catch {
+      // Ignore background presence ping errors
+    }
+  };
+
+  // Immediate presence ping upon session setup
+  updatePresence(true);
+
+  // Periodic heartbeat every 60 seconds
+  presenceInterval = setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      updatePresence(true);
+    }
+  }, 60000);
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      updatePresence(true);
+    } else {
+      updatePresence(false);
+    }
+  };
+
+  const handlePageHide = () => {
+    updatePresence(false);
+  };
+
+  window.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('pagehide', handlePageHide);
+  window.addEventListener('beforeunload', handlePageHide);
+}
+
+function attachSpaceSubscriptions(spaceId: string, currentUid: string) {
+  const db = getFirebaseFirestore();
+
+  // 1. Real-time listener for space document
+  if (spaceDocUnsubscribe) spaceDocUnsubscribe();
+  spaceDocUnsubscribe = onSnapshot(
+    doc(db, 'privateSpaces', spaceId),
+    (spaceSnap) => {
+      if (spaceSnap.exists()) {
+        const sData = spaceSnap.data();
+        const currentSpace: PrivateSpace = {
+          id: spaceId,
+          name: sData.name || 'Our Space',
+          created_by: sData.createdBy,
+          couple_started_at: sData.coupleStartedAt || null,
+          theme_accent: sData.themeAccent || '#f43f5e',
+          wallpaper_url: sData.wallpaperUrl || null,
+          created_at: sData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          updated_at: sData.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        };
+        useAuthStore.setState({ space: currentSpace });
+      }
+    },
+    (err) => {
+      console.warn('Space document real-time listener warning:', err);
+    }
+  );
+
+  // 2. Real-time listener for space members collection (determines partner UID)
+  if (spaceMembersUnsubscribe) spaceMembersUnsubscribe();
+  spaceMembersUnsubscribe = onSnapshot(
+    collection(db, `privateSpaces/${spaceId}/members`),
+    (membersSnap) => {
+      const partnerDoc = membersSnap.docs.find((d) => d.id !== currentUid);
+      if (partnerDoc) {
+        const partnerUid = partnerDoc.id;
+        if (partnerUid !== currentPartnerSubscribedUid) {
+          currentPartnerSubscribedUid = partnerUid;
+
+          // 3. REAL-TIME LISTENER ON PARTNER'S CANONICAL USER DOCUMENT
+          if (partnerDocUnsubscribe) partnerDocUnsubscribe();
+          partnerDocUnsubscribe = onSnapshot(
+            doc(db, 'users', partnerUid),
+            (partnerSnap) => {
+              if (partnerSnap.exists()) {
+                const pData = partnerSnap.data();
+                const partnerProfile = mapFirestoreDataToProfile(partnerSnap.id, pData);
+                useAuthStore.setState({ partner: partnerProfile });
+              } else {
+                const mData = partnerDoc.data();
+                useAuthStore.setState({
+                  partner: {
+                    id: partnerUid,
+                    display_name: mData.displayName || 'My Partner',
+                    avatar_url: mData.photoURL || null,
+                    bio: 'In our private space',
+                    status_message: 'Online',
+                    status_emoji: '❤️',
+                    anniversary_date: null,
+                    accent_color: '#8b5cf6',
+                    theme_mode: 'light',
+                    last_seen_at: new Date().toISOString(),
+                    is_online: false,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  },
+                });
+              }
+            },
+            (partnerErr) => {
+              console.warn('Partner profile real-time sync warning:', partnerErr);
+            }
+          );
+        }
+      } else {
+        // Space does not yet have a second member
+        if (partnerDocUnsubscribe) {
+          partnerDocUnsubscribe();
+          partnerDocUnsubscribe = null;
+        }
+        currentPartnerSubscribedUid = null;
+        useAuthStore.setState({ partner: null });
+      }
+    },
+    (err) => {
+      console.warn('Space members real-time listener warning:', err);
+    }
+  );
+}
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -94,66 +281,60 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       if (isFirebaseConfigured()) {
-        // Firebase Auth state listener
-        onFirebaseAuthStateChanged(async (firebaseUser) => {
-          if (firebaseUser) {
-            const profile = await fetchUserProfileFromFirestore(firebaseUser.uid);
-            if (profile) {
-              set({ user: profile });
-
-              // Fetch space if activeSpaceId exists
+        if (!authListenerRegistered) {
+          authListenerRegistered = true;
+          onFirebaseAuthStateChanged(async (firebaseUser) => {
+            if (firebaseUser) {
+              cleanupSubscriptions();
               const db = getFirebaseFirestore();
-              const userSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
-              const spaceId = userSnap.data()?.activeSpaceId;
 
-              if (spaceId) {
-                const spaceSnap = await getDoc(doc(db, 'privateSpaces', spaceId));
-                if (spaceSnap.exists()) {
-                  const sData = spaceSnap.data();
-                  const currentSpace: PrivateSpace = {
-                    id: spaceId,
-                    name: sData.name,
-                    created_by: sData.createdBy,
-                    couple_started_at: sData.coupleStartedAt || null,
-                    theme_accent: sData.themeAccent || '#f43f5e',
-                    wallpaper_url: sData.wallpaperUrl || null,
-                    created_at: sData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-                    updated_at: sData.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-                  };
-                  set({ space: currentSpace });
+              // 1. Subscribe to CURRENT USER canonical profile document in real-time
+              const userRef = doc(db, 'users', firebaseUser.uid);
+              userDocUnsubscribe = onSnapshot(
+                userRef,
+                async (userSnap) => {
+                  if (userSnap.exists()) {
+                    const uData = userSnap.data();
+                    const profile = mapFirestoreDataToProfile(userSnap.id, uData);
+                    set({ user: profile, isLoading: false });
 
-                  // Real-time listener for partner co-member
-                  const membersCol = collection(db, `privateSpaces/${spaceId}/members`);
-                  onSnapshot(membersCol, async (snapshot) => {
-                    const partnerDoc = snapshot.docs.find((d) => d.id !== firebaseUser.uid);
-                    if (partnerDoc) {
-                      const partnerProfile = await fetchUserProfileFromFirestore(partnerDoc.id);
-                      if (partnerProfile) {
-                        set({ partner: partnerProfile });
-                      } else {
-                        const pData = partnerDoc.data();
-                        set({
-                          partner: {
-                            id: partnerDoc.id,
-                            display_name: pData?.displayName || 'My Partner',
-                            avatar_url: null,
-                            bio: 'In our private space',
-                            status_message: 'Online',
-                            anniversary_date: null,
-                            accent_color: '#8b5cf6',
-                            theme_mode: 'light',
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString(),
-                          },
-                        });
-                      }
+                    const spaceId = uData.activeSpaceId;
+                    if (spaceId && spaceId !== currentActiveSpaceId) {
+                      currentActiveSpaceId = spaceId;
+                      attachSpaceSubscriptions(spaceId, firebaseUser.uid);
+                    } else if (!spaceId && currentActiveSpaceId) {
+                      cleanupSubscriptions({ keepUser: true });
+                      set({ space: null, partner: null });
                     }
-                  });
+                  } else {
+                    const initialProfile = await fetchUserProfileFromFirestore(firebaseUser.uid);
+                    if (initialProfile) {
+                      set({ user: initialProfile, isLoading: false });
+                    } else {
+                      set({ isLoading: false });
+                    }
+                  }
+                },
+                (err) => {
+                  console.warn('Current user real-time listener warning:', err);
+                  set({ isLoading: false });
                 }
-              }
+              );
+
+              // 2. Start presence heartbeat
+              startPresenceHeartbeat(firebaseUser.uid);
+            } else {
+              cleanupSubscriptions();
+              set({
+                user: null,
+                space: null,
+                partner: null,
+                pendingInvitation: null,
+                isLoading: false,
+              });
             }
-          }
-        });
+          });
+        }
       } else {
         // Local persistence fallback for out-of-the-box demoing
         const storedUser = typeof window !== 'undefined' ? localStorage.getItem('ourspace_user') : null;
@@ -165,19 +346,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             user: parsedUser,
             space: storedSpace ? JSON.parse(storedSpace) : DEMO_SPACE,
             partner: parsedUser.id === DEMO_USER_1.id ? DEMO_USER_2 : DEMO_USER_1,
+            isLoading: false,
           });
         } else {
-          // Default to Demo User 1 for instantaneous review
           set({
             user: DEMO_USER_1,
             space: DEMO_SPACE,
             partner: DEMO_USER_2,
+            isLoading: false,
           });
         }
       }
     } catch (err: unknown) {
       console.warn('Session init error:', err);
-    } finally {
       set({ isLoading: false });
     }
   },
@@ -194,11 +375,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { success: true };
     } else {
       if (process.env.NODE_ENV === 'production') {
-        const unconfiguredMsg = 'Firebase Authentication is unconfigured: Please configure NEXT_PUBLIC_FIREBASE_API_KEY in Vercel Environment Variables, or use the 1-Click Demo Profiles below to test.';
+        const unconfiguredMsg =
+          'Firebase Authentication is unconfigured: Please configure NEXT_PUBLIC_FIREBASE_API_KEY in Vercel Environment Variables, or use the 1-Click Demo Profiles below to test.';
         set({ isLoading: false, error: unconfiguredMsg });
         return { success: false, error: unconfiguredMsg };
       }
-      // Local demo auth
       const user = email.includes('jordan') ? DEMO_USER_2 : DEMO_USER_1;
       const partner = user.id === DEMO_USER_1.id ? DEMO_USER_2 : DEMO_USER_1;
       if (typeof window !== 'undefined') {
@@ -222,7 +403,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { success: true };
     } else {
       if (process.env.NODE_ENV === 'production') {
-        const unconfiguredMsg = 'Firebase Authentication is unconfigured: Please configure NEXT_PUBLIC_FIREBASE_API_KEY in Vercel Environment Variables, or use the 1-Click Demo Profiles below to test.';
+        const unconfiguredMsg =
+          'Firebase Authentication is unconfigured: Please configure NEXT_PUBLIC_FIREBASE_API_KEY in Vercel Environment Variables, or use the 1-Click Demo Profiles below to test.';
         set({ isLoading: false, error: unconfiguredMsg });
         return { success: false, error: unconfiguredMsg };
       }
@@ -232,9 +414,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         avatar_url: null,
         bio: 'Just joined OurSpace',
         status_message: 'Online',
+        status_emoji: '❤️',
         anniversary_date: null,
         accent_color: '#f43f5e',
         theme_mode: 'light',
+        last_seen_at: new Date().toISOString(),
+        is_online: true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -248,6 +433,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    const user = get().user;
+    if (user && isFirebaseConfigured()) {
+      try {
+        const db = getFirebaseFirestore();
+        await updateDoc(doc(db, 'users', user.id), {
+          lastSeenAt: serverTimestamp(),
+          isOnline: false,
+        });
+      } catch {}
+    }
+    cleanupSubscriptions();
     if (isFirebaseConfigured()) {
       await logoutFromFirebase();
     }
@@ -255,7 +451,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.removeItem('ourspace_user');
       localStorage.removeItem('ourspace_space');
     }
-    set({ user: null, space: null, partner: null });
+    set({ user: null, space: null, partner: null, pendingInvitation: null });
   },
 
   createSpace: async (name, startDate) => {
@@ -339,6 +535,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         console.warn('Error during space unpairing:', err);
       }
     }
+    cleanupSubscriptions({ keepUser: true });
     if (typeof window !== 'undefined') {
       localStorage.removeItem('ourspace_space');
     }
@@ -348,24 +545,82 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   updateProfile: async (updates) => {
     const user = get().user;
     if (!user) return;
-    const updated = { ...user, ...updates, updated_at: new Date().toISOString() };
+
+    // Optimistic local state update
+    const updated: Profile = {
+      ...user,
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+    set({ user: updated });
 
     if (isFirebaseConfigured()) {
-      const db = getFirebaseFirestore();
-      await updateDoc(doc(db, 'users', user.id), {
-        displayName: updates.display_name || user.display_name,
-        photoURL: updates.avatar_url !== undefined ? updates.avatar_url : user.avatar_url,
-        bio: updates.bio !== undefined ? updates.bio : user.bio,
-        statusMessage: updates.status_message || user.status_message,
-        accentColor: updates.accent_color || user.accent_color,
-        themeMode: updates.theme_mode || user.theme_mode,
-        anniversaryDate: updates.anniversary_date !== undefined ? updates.anniversary_date : user.anniversary_date,
-      });
+      try {
+        const db = getFirebaseFirestore();
+        const firestoreUpdates: Record<string, any> = {
+          updatedAt: serverTimestamp(),
+        };
+
+        if (updates.display_name !== undefined) {
+          firestoreUpdates.displayName = updates.display_name;
+        }
+        if (updates.avatar_url !== undefined) {
+          firestoreUpdates.photoURL = updates.avatar_url;
+        }
+        if (updates.bio !== undefined) {
+          firestoreUpdates.bio = updates.bio;
+        }
+        if (updates.status_message !== undefined) {
+          firestoreUpdates.statusMessage = updates.status_message;
+        }
+        if (updates.status_emoji !== undefined) {
+          firestoreUpdates.statusEmoji = updates.status_emoji;
+        }
+        if (updates.accent_color !== undefined) {
+          firestoreUpdates.accentColor = updates.accent_color;
+        }
+        if (updates.theme_mode !== undefined) {
+          firestoreUpdates.themeMode = updates.theme_mode;
+        }
+        if (updates.anniversary_date !== undefined) {
+          firestoreUpdates.anniversaryDate = updates.anniversary_date;
+        }
+
+        // 1. Authoritative update to canonical user document
+        await updateDoc(doc(db, 'users', user.id), firestoreUpdates);
+
+        // 2. Synchronize to Firebase Auth credential profile
+        const auth = getFirebaseAuth();
+        if (auth?.currentUser) {
+          const authUpdates: { displayName?: string; photoURL?: string | null } = {};
+          if (updates.display_name !== undefined) authUpdates.displayName = updates.display_name;
+          if (updates.avatar_url !== undefined) authUpdates.photoURL = updates.avatar_url;
+          if (Object.keys(authUpdates).length > 0) {
+            await updateFirebaseProfile(auth.currentUser, authUpdates).catch((err) => {
+              console.warn('Auth profile sync warning:', err);
+            });
+          }
+        }
+
+        // 3. Keep space member document updated for backward compatibility
+        const space = get().space;
+        if (space?.id) {
+          const memberRef = doc(db, `privateSpaces/${space.id}/members`, user.id);
+          const memberUpdates: Record<string, any> = {};
+          if (updates.display_name !== undefined) memberUpdates.displayName = updates.display_name;
+          if (updates.avatar_url !== undefined) memberUpdates.photoURL = updates.avatar_url;
+          if (Object.keys(memberUpdates).length > 0) {
+            await updateDoc(memberRef, memberUpdates).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.warn('Profile update error:', err);
+      }
     }
+
     if (typeof window !== 'undefined') {
       localStorage.setItem('ourspace_user', JSON.stringify(updated));
     }
-    set({ user: updated });
   },
 
   switchDemoUser: (userNum) => {
@@ -382,3 +637,4 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: selected, partner, space: DEMO_SPACE });
   },
 }));
+

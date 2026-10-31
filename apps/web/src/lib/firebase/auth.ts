@@ -78,9 +78,74 @@ export async function resetFirebasePassword(email: string): Promise<{ success: b
   }
 }
 
+export async function updateFirebaseProfile(
+  user: User,
+  updates: { displayName?: string; photoURL?: string | null }
+): Promise<void> {
+  await updateProfile(user, updates);
+}
+
 export function onFirebaseAuthStateChanged(callback: (user: User | null) => void) {
   const auth = getFirebaseAuth();
   return onAuthStateChanged(auth, callback);
+}
+
+/**
+ * Normalizes Firestore document data into canonical Profile domain type.
+ * Handles backward-compatibility for legacy naming conventions and timestamps.
+ */
+export function mapFirestoreDataToProfile(uid: string, data: any): Profile {
+  const nowIso = new Date().toISOString();
+
+  const toIsoString = (val: any, fallback: string): string => {
+    if (!val) return fallback;
+    if (typeof val.toDate === 'function') {
+      try {
+        return val.toDate().toISOString();
+      } catch {}
+    }
+    if (val instanceof Date) {
+      try {
+        return val.toISOString();
+      } catch {}
+    }
+    if (typeof val === 'string') return val;
+    return fallback;
+  };
+
+  if (!data) {
+    return {
+      id: uid,
+      display_name: 'Partner',
+      avatar_url: null,
+      bio: null,
+      status_message: 'Connected with you',
+      status_emoji: '❤️',
+      anniversary_date: null,
+      accent_color: '#f43f5e',
+      theme_mode: 'light',
+      last_seen_at: null,
+      is_online: false,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+  }
+
+  return {
+    id: uid,
+    display_name: data.displayName || data.display_name || 'My Love',
+    avatar_url: data.photoURL || data.photo_url || data.avatar_url || null,
+    bio: data.bio !== undefined ? data.bio : null,
+    status_message: data.statusMessage || data.status_message || data.statusText || 'Connected with you',
+    status_emoji: data.statusEmoji || data.status_emoji || null,
+    anniversary_date: data.anniversaryDate || data.anniversary_date || null,
+    accent_color: data.accentColor || data.accent_color || '#f43f5e',
+    theme_mode: data.themeMode || data.theme_mode || 'light',
+    last_seen_at: toIsoString(data.lastSeenAt, null as any),
+    is_online: typeof data.isOnline === 'boolean' ? data.isOnline : undefined,
+    created_at: toIsoString(data.createdAt, nowIso),
+    updated_at: toIsoString(data.updatedAt, nowIso),
+  };
 }
 
 export async function fetchUserProfileFromFirestore(uid: string): Promise<Profile | null> {
@@ -88,19 +153,7 @@ export async function fetchUserProfileFromFirestore(uid: string): Promise<Profil
     const db = getFirebaseFirestore();
     const userDoc = await getDoc(doc(db, 'users', uid));
     if (userDoc.exists()) {
-      const data = userDoc.data();
-      return {
-        id: uid,
-        display_name: data.displayName || 'Partner',
-        avatar_url: data.photoURL || null,
-        bio: data.bio || null,
-        status_message: data.statusMessage || 'Online',
-        anniversary_date: data.anniversaryDate || null,
-        accent_color: data.accentColor || '#f43f5e',
-        theme_mode: data.themeMode || 'light',
-        created_at: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-        updated_at: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-      };
+      return mapFirestoreDataToProfile(userDoc.id, userDoc.data());
     }
     return null;
   } catch (err) {
@@ -108,3 +161,4 @@ export async function fetchUserProfileFromFirestore(uid: string): Promise<Profil
     return null;
   }
 }
+

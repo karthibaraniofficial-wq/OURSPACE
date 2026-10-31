@@ -283,3 +283,49 @@ export const ACCENT_PRESETS: AccentColorPreset[] = [
     bgLight: 'bg-sky-50',
   },
 ];
+
+/**
+ * Determines whether a user or partner is currently online.
+ * Considers both explicit connection flags and a 3-minute heartbeat window.
+ */
+export function isUserOnline(
+  lastSeenOrUpdated?: string | null,
+  isOnlineExplicit?: boolean
+): boolean {
+  if (isOnlineExplicit === false) return false;
+  if (!lastSeenOrUpdated) return false;
+  const lastActiveMs = new Date(lastSeenOrUpdated).getTime();
+  if (isNaN(lastActiveMs)) return false;
+  // Active if heartbeat pinged within 3 minutes
+  return Date.now() - lastActiveMs < 3 * 60 * 1000;
+}
+
+/**
+ * Formats a friendly presence label ('Active now', 'Just now', '5m ago', '2h ago', 'Offline')
+ */
+export function formatPresenceStatus(
+  lastSeenOrUpdated?: string | null,
+  isOnlineExplicit?: boolean
+): { isOnline: boolean; label: string } {
+  if (!lastSeenOrUpdated && isOnlineExplicit === undefined) {
+    return { isOnline: false, label: 'Offline' };
+  }
+  const online = isUserOnline(lastSeenOrUpdated, isOnlineExplicit);
+  if (online) {
+    return { isOnline: true, label: 'Active now' };
+  }
+  if (!lastSeenOrUpdated) {
+    return { isOnline: false, label: 'Offline' };
+  }
+  const lastActiveMs = new Date(lastSeenOrUpdated).getTime();
+  if (isNaN(lastActiveMs)) {
+    return { isOnline: false, label: 'Offline' };
+  }
+  const diffMins = Math.floor((Date.now() - lastActiveMs) / (60 * 1000));
+  if (diffMins < 1) return { isOnline: false, label: 'Just now' };
+  if (diffMins < 60) return { isOnline: false, label: `${diffMins}m ago` };
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return { isOnline: false, label: `${diffHours}h ago` };
+  return { isOnline: false, label: 'Offline' };
+}
+

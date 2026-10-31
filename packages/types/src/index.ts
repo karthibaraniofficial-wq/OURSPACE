@@ -10,9 +10,12 @@ export interface Profile {
   avatar_url: string | null;
   bio: string | null;
   status_message: string;
+  status_emoji?: string | null;
   anniversary_date: string | null;
   accent_color: string;
   theme_mode: 'light' | 'dark' | 'system';
+  last_seen_at?: string | null;
+  is_online?: boolean;
   created_at: string;
   updated_at: string;
 }

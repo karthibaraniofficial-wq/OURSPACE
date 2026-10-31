@@ -22,7 +22,8 @@ import {
 import { useAuthStore } from '@/store/useAuthStore';
 import { useCallStore } from '@/store/useCallStore';
 import { cn } from '@/lib/utils';
-import { calculateDaysTogether } from '@ourspace/shared';
+import { calculateDaysTogether, isUserOnline, formatPresenceStatus } from '@ourspace/shared';
+
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Heart },
@@ -81,6 +82,7 @@ export function Sidebar() {
             <div className="relative shrink-0">
               {partner.avatar_url ? (
                 <img
+                  key={partner.avatar_url}
                   src={partner.avatar_url}
                   alt={partner.display_name}
                   className="w-9 h-9 rounded-xl object-cover ring-2 ring-rose-400/40"
@@ -90,24 +92,39 @@ export function Sidebar() {
                   {partner.display_name.charAt(0)}
                 </div>
               )}
-              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white dark:border-stone-900 shadow-sm" />
+              <span
+                className={cn(
+                  'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-stone-900 shadow-sm transition-colors',
+                  isUserOnline(partner.last_seen_at || partner.updated_at, partner.is_online)
+                    ? 'bg-emerald-500'
+                    : 'bg-stone-400 dark:bg-zinc-600'
+                )}
+              />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-stone-800 dark:text-zinc-100 truncate">
                   {partner.display_name}
                 </p>
-                <span className="text-[9px] text-emerald-600 font-medium flex items-center gap-0.5">
-                  <Radio className="w-2 h-2 animate-pulse" />
-                  Live
-                </span>
+                {isUserOnline(partner.last_seen_at || partner.updated_at, partner.is_online) ? (
+                  <span className="text-[9px] text-emerald-600 font-medium flex items-center gap-0.5">
+                    <Radio className="w-2 h-2 animate-pulse" />
+                    Live
+                  </span>
+                ) : (
+                  <span className="text-[9px] text-stone-400 font-medium">
+                    {formatPresenceStatus(partner.last_seen_at || partner.updated_at, partner.is_online).label}
+                  </span>
+                )}
               </div>
-              <p className="text-[10px] text-stone-500 dark:text-zinc-400 truncate">
-                {partner.status_message || 'Connected with you'}
+              <p className="text-[10px] text-stone-500 dark:text-zinc-400 truncate flex items-center gap-1">
+                {partner.status_emoji && <span>{partner.status_emoji}</span>}
+                <span className="truncate">{partner.status_message || 'Connected with you'}</span>
               </p>
             </div>
           </div>
         )}
+
       </div>
 
       {/* Navigation Menu (Scrolls smoothly if screen height is constrained) */}
