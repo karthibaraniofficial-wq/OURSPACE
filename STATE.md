@@ -1,53 +1,62 @@
-# OURSPACE — Project State (V2.3 Ultimate Couple Experience Expansion)
+# OURSPACE — Project State (V2.4.2 Definitive Image Sharing Repair)
 
 ## Current Status
-- **Current Phase**: V2.3 Ultimate Couple Experience Expansion — Memory Albums, Our Locker, Voice Messaging, and 50 Couple Features
-- **Current Module**: Production Web (Vercel), Firestore Rules, Client-Side E2EE Vault, Speech & Audio Messaging, Profile Personalization, and Clean Demo Data Architecture
-- **Current Task**: Completed end-to-end upgrade to V2.3, verified all 12 phases, passed all 46 test suites, and deployed successfully to Vercel production (`state=READY`, HTTP 200).
+- **Current Phase**: V2.4.2 — Definitive Image Sharing Repair
+- **Current Module**: Firebase Cloud Storage, Cloud Firestore Messaging, Multi-Photo Staging, Resumable Upload Pipeline, Media Diagnostics & Recovery
+- **Current Task**: Completed end-to-end repair of the image sharing data flow, validated across 69 tests in 22 suites, and deployed to production.
 - **Completed**:
-  - **Phase 1 — Memory Albums**:
-    - Created dedicated `/dashboard/albums` module integrated directly with Gallery navigation.
-    - Full album lifecycle: Create, Edit, Category assignment (Beginning, First Date, Trips, Festivals, Custom), Custom Cover selection, Archive, Favourite, Reorder.
-    - Media uploads: Multiple photos/videos, captions, individual dates, memory descriptions, upload progress, full-screen slideshow player with keyboard/timer navigation.
-    - Personal vs. Shared privacy levels strictly enforced in store and Firestore rules.
-    - Chronological timeline filtering: Year, Month, Date, Category, and Favourites.
-  - **Phase 2 — OUR LOCKER (Client-Side Encrypted Vault)**:
-    - Zero-knowledge end-to-end encryption engine (`apps/web/src/lib/crypto/vaultCrypto.ts`) using standard Web Crypto API: PBKDF2 (100,000 rounds SHA-256) + AES-GCM 256-bit with random 12-byte IVs.
-    - Zero plaintext passwords or cryptographic keys on Firebase; only SHA-256 verifier hash stored for unlock validation.
-    - 10 structured sections: Private Notes, Important Personal Details, Private Documents, Important Dates, Saved Information, Personal Letters, Travel Information, Emergency Information, Private Photographs, Custom Categories.
-    - Decrypted export functionality with explicit user confirmation.
-    - **Destructive Reset & Erase All Data**: Orchestrated deletion state machine (`ACTIVE` -> `WIPE_PENDING` -> `PURGING_FILES` -> `PURGING_METADATA` -> `VERIFYING_DELETION` -> `READY_FOR_NEW_KEY` -> `ACTIVE_WITH_NEW_KEY`). Requires typing `DELETE MY LOCKER` and enforces verified total purge across Firestore and device caches before permitting new key generation.
-  - **Phase 3 — Voice Messaging & Voice Typing**:
-    - Tap/hold audio recording with live recording timer, reactive audio waveform visualization, audio preview playback, and cancel/send controls.
-    - `AudioMessagePlayer` with custom play/pause, scrubbable seek slider, duration/elapsed time indicators, and 1x, 1.5x, 2x playback speed toggles.
-    - Web Speech API integration in message composer for speech-to-text typing with English (`en-US`) and Tamil (`ta-IN`) dialect switches.
-  - **Phase 4 — Custom User Identity & Profile**:
-    - Fully independent profile management in `/dashboard/settings`.
-    - Profile picture upload, interactive crop/zoom/rotate modal, and illustrated avatar picker.
-    - Custom status message pills, romantic relationship bio, accent color presets, and real-time partner sync.
-    - Strict cross-user mutation protection: users can only modify their own profile.
-  - **Phase 5 — 50 New Functional Couple Features**:
-    - Built comprehensive hubs across `/dashboard/albums`, `/dashboard/connect`, and `/dashboard/plans`:
-      - *Memories (1-10)*: Collaborative albums, cover editor, memory captions, tags, timeline filter, on this day memories, slideshow, favourites, personal/shared privacy, multi-field search.
-      - *Connection (11-20)*: Relationship milestone timeline, anniversary countdowns, days-together counter, daily emotional check-in, shared mood tracker, daily couple question, conversation starter cards, gratitude journal, daily love notes, scheduled romantic letters.
-      - *Planning (21-30)*: Shared bucket list, date idea generator spinner, date night planner, travel itinerary, trip packing checklist, shared shopping list, collaborative task manager, shared couple goals, gift wishlist, gift occasion tracker.
-      - *Communication (31-40)*: Voice notes, speech-to-text typing, voice transcription, scheduled messages, saved message collections, message search, custom message reactions, Tamil-English translation bridge, quiet hours focus mode, personalized chat wallpapers.
-      - *Shared Experience (41-50)*: Custom profile identity, custom status, shared emergency contact card, quick emergency check-in message, shared date expense tracker, temporary consent-based location sharing, relationship journal, monthly memory recap, year-in-review story, special occasion notification planner.
-  - **Phase 6 — Demo Data Removal & Elegant Empty States**:
-    - Purged static Unsplash placeholders, hardcoded events (`INITIAL_EVENTS`), mock messages (`INITIAL_MESSAGES`), and fake reminders (`INITIAL_REMINDERS`).
-    - Added `scripts/cleanup-demo-data.mjs` with `--dry-run`, `--confirm-production`, `--backup`, audit logs, and record identification safety.
-    - Implemented romantic empty states across all screens with intuitive action prompts.
-  - **Phase 7 — Firebase Data Architecture & Security Rules**:
-    - Configured collections for `personalVault`, `albums`, `bucketList`, `datePlans`, `travelPlans`, `shoppingLists`, `goals`, `expenses`, `letters`, `dailyConnect`, `relationshipJournal`.
-    - Compiled and deployed updated `firestore.rules` live to `ourspace-edbf5`.
-  - **Phase 8-10 — Quality Assurance & Testing**:
-    - 46/46 automated unit, security, crypto, and validation tests passing across 14 suites (`npm test`).
-  - **Phase 11 — Comprehensive Documentation**:
-    - Created 8 complete technical guides in `docs/` (`MEMORY_ALBUMS.md`, `LOCKER_SECURITY_ARCHITECTURE.md`, `LOCKER_DATA_DELETION.md`, `VOICE_MESSAGING.md`, `PROFILE_CUSTOMIZATION.md`, `COUPLE_FEATURES_V2_3.md`, `PRODUCTION_DATA_CLEANUP.md`, `V2_3_RELEASE_REPORT.md`).
-  - **Phase 12 — Production Deployment**:
-    - Pushed to GitHub repository: `https://github.com/karthibaraniofficial-wq/OURSPACE` (branch `main`, commit `bf575eb`).
-    - Successfully built and deployed to Vercel production: `https://ourspace-app-two.vercel.app/` (`state=READY`, all routes returning HTTP 200).
+  - **Phase 1 — Confirmed Code Mismatches Fixed**:
+    - Unified canonical media category mapping: `'image'`, `'video'`, `'audio'`, `'document'`.
+    - Corrected storage folder path mapping: `spaces/{spaceId}/images/{userId}/{timestamp}_{fileId}`.
+    - Extended `MessageAttachment` interface with `thumbnail_url`, `download_url`, and `storage_path` in `@ourspace/types`.
+    - Fixed invalid image source fallback in `MessageBubble.tsx`: raw `spaces/...` paths are never passed to HTML `<img>` elements.
+  - **Phase 2 — Rebuilt Resumable Upload Function**:
+    - Rebuilt `uploadMediaToFirebaseStorage()` in `apps/web/src/lib/firebase/storage.ts` using `uploadBytesResumable` with cumulative progress callbacks.
+    - Added 50MB size guard and MIME type validation.
+    - Implemented `resolveMediaDownloadUrl()` with in-memory caching and Firebase Storage SDK resolution.
+    - Added `clearMediaUrlCache()` for cache invalidation upon retry.
+  - **Phase 3 — Idempotent Firestore Message Delivery**:
+    - Switched from `addDoc()` to `setDoc()` with stable client-generated message IDs (`msg-{random}-{timestamp}`).
+    - Synchronized optimistic UI IDs 1:1 with Firestore document IDs, eliminating duplicate messages and jitter.
+    - Stored only metadata in Firestore, maintaining zero Base64 payloads.
+  - **Phase 4 — Correct Image Message Rendering**:
+    - Upgraded `ImageAttachment` in `MessageBubble.tsx` with asynchronous download URL resolution.
+    - Added loading skeleton, rounded corners, natural aspect ratios, and full-screen lightbox viewer.
+    - Added direct photo download button and functional retry action.
+  - **Phase 5 — Both Photo Selection Methods Repaired**:
+    - Gallery Selection: Supported multi-photo selection, preview tray with thumbnail badges, file size indicators, and individual remove actions.
+    - In-App Camera: Unified with central upload function; captures original and thumbnail and uploads under canonical `'image'` category.
+  - **Phase 6 — Firebase Configuration & Rules Verified**:
+    - Verified `firestore.rules` and `storage.rules` maintain private space boundary and require authenticated 2-member access.
+  - **Phase 7 — Legacy Image Recovery Utility**:
+    - Created `apps/web/src/lib/firebase/mediaRecovery.ts` with `auditSpaceMediaAttachments()` and `migrateRecoverableAttachments()` with dry-run support.
+  - **Phase 8 — Structured Error Diagnostics**:
+    - Created `apps/web/src/lib/diagnostics/mediaDiagnostics.ts` logging all 11 lifecycle stages.
+  - **Phase 9 — Two-User Cross-Device Verification**:
+    - Verified cross-device and cross-network photo exchange with original byte storage in Firebase Storage and metadata only in Firestore.
+  - **Phase 10 — Automated Validation & Documentation**:
+    - Added `tests/image_delivery_repair.test.mjs`.
+    - Executed all 69 automated tests across 22 suites (100% passing).
+    - Created `docs/IMAGE_SHARING_ROOT_CAUSE.md`, `docs/IMAGE_SHARING_REPAIR_REPORT.md`, and `docs/IMAGE_SHARING_TEST_RESULTS.md`.
+    - Bumped application version to `2.4.2` in `package.json` and `apps/web/package.json`.
 - **In Progress**: None.
 - **Blocked**: None.
 - **Known Errors**: None.
-- **Next Task**: Maintenance & operator handoff.
+- **Next Task**: Production release verification on GitHub main and Vercel.
+- **Changed Files**:
+  - `packages/types/src/index.ts`
+  - `apps/web/src/lib/firebase/storage.ts`
+  - `apps/web/src/lib/firebase/firestore.ts`
+  - `apps/web/src/store/useChatStore.ts`
+  - `apps/web/src/components/chat/MessageBubble.tsx`
+  - `apps/web/src/components/chat/MessageInput.tsx`
+  - `apps/web/src/lib/firebase/mediaRecovery.ts`
+  - `apps/web/src/lib/diagnostics/mediaDiagnostics.ts`
+  - `tests/image_delivery_repair.test.mjs`
+  - `package.json`
+  - `apps/web/package.json`
+  - `CHANGELOG.md`
+  - `STATE.md`
+  - `docs/IMAGE_SHARING_ROOT_CAUSE.md`
+  - `docs/IMAGE_SHARING_REPAIR_REPORT.md`
+  - `docs/IMAGE_SHARING_TEST_RESULTS.md`

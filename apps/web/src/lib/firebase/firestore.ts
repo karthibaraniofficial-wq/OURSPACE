@@ -204,11 +204,13 @@ export function subscribeToFirestoreMessages(
 
 export async function sendMessageToFirestore(
   spaceId: string,
-  message: Omit<Message, 'id'>
+  message: Message | (Omit<Message, 'id'> & { id?: string })
 ): Promise<string> {
   const db = getFirebaseFirestore();
-  const msgsRef = collection(db, `privateSpaces/${spaceId}/conversations/main/messages`);
-  const docRef = await addDoc(msgsRef, {
+  const messageId = message.id || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const docRef = doc(db, `privateSpaces/${spaceId}/conversations/main/messages`, messageId);
+
+  await setDoc(docRef, {
     senderId: message.sender_id,
     content: message.content,
     type: message.type,
@@ -217,11 +219,12 @@ export async function sendMessageToFirestore(
     deletedForAll: false,
     pinned: false,
     attachments: message.attachments || [],
-    reactions: [],
+    reactions: message.reactions || [],
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return docRef.id;
+
+  return messageId;
 }
 
 export async function updateMessageInFirestore(

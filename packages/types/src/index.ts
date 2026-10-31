@@ -79,16 +79,19 @@ export interface MessageAttachment {
   message_id: UUID;
   space_id: UUID;
   file_path: string;
+  storage_path?: string;
   file_name: string;
   file_size: number;
   file_type: string;
   media_category: 'image' | 'video' | 'document' | 'audio';
   thumbnail_path: string | null;
+  thumbnail_url?: string | null;
   duration_seconds: number | null;
   width: number | null;
   height: number | null;
   created_at: string;
   signed_url?: string;
+  download_url?: string | null;
 }
 
 export interface MessageReceipt {

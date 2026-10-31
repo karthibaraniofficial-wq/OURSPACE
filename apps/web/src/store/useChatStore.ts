@@ -26,6 +26,7 @@ interface ChatState {
     type?: Message['type'];
     replyToId?: UUID | null;
     attachment?: Partial<MessageAttachment>;
+    attachments?: Partial<MessageAttachment>[];
   }) => Promise<void>;
   editMessage: (messageId: UUID, newContent: string, spaceId?: UUID) => Promise<void>;
   deleteMessage: (messageId: UUID, forEveryone: boolean, userId: UUID, spaceId?: UUID) => Promise<void>;
@@ -75,27 +76,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: async ({ spaceId, senderId, content, type = 'text', replyToId = null, attachment }) => {
-    const newMessageId = 'msg-' + Math.random().toString(36).substring(2, 9);
+  sendMessage: async ({ spaceId, senderId, content, type = 'text', replyToId = null, attachment, attachments }) => {
+    const newMessageId = 'msg-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36);
 
-    let createdAttachment: MessageAttachment | undefined;
-    if (attachment && attachment.file_name) {
-      createdAttachment = {
-        id: 'att-' + Math.random().toString(36).substring(2, 9),
-        message_id: newMessageId,
-        space_id: spaceId,
-        file_path: attachment.file_path || 'local',
-        file_name: attachment.file_name,
-        file_size: attachment.file_size || 1024,
-        file_type: attachment.file_type || 'application/octet-stream',
-        media_category: attachment.media_category || 'image',
-        thumbnail_path: attachment.thumbnail_path || null,
-        duration_seconds: attachment.duration_seconds || null,
-        width: attachment.width || null,
-        height: attachment.height || null,
-        created_at: new Date().toISOString(),
-        signed_url: attachment.signed_url,
-      };
+    const createdAttachments: MessageAttachment[] = [];
+    const sourceAttachments = attachments && attachments.length > 0 
+      ? attachments 
+      : (attachment ? [attachment] : []);
+
+    sourceAttachments.forEach((att) => {
+      if (att && (att.file_name || att.download_url || att.signed_url || att.file_path || att.storage_path)) {
+        createdAttachments.push({
+          id: att.id || 'att-' + Math.random().toString(36).substring(2, 9),
+          message_id: newMessageId,
+          space_id: spaceId,
+          file_path: att.file_path || att.storage_path || 'local',
+          storage_path: att.storage_path || att.file_path,
+          file_name: att.file_name || 'attachment',
+          file_size: att.file_size || 1024,
+          file_type: att.file_type || 'application/octet-stream',
+          media_category: att.media_category || 'image',
+          thumbnail_path: att.thumbnail_path || null,
+          thumbnail_url: att.thumbnail_url || null,
+          duration_seconds: att.duration_seconds || null,
+          width: att.width || null,
+          height: att.height || null,
+          created_at: att.created_at || new Date().toISOString(),
+          signed_url: att.signed_url || att.download_url,
+          download_url: att.download_url || att.signed_url || null,
+        });
+      }
+    });
+
+    // Auto-detect message type if type was default 'text' but attachments exist
+    let resolvedType = type;
+    if (resolvedType === 'text' && createdAttachments.length > 0) {
+      const firstCat = createdAttachments[0]?.media_category;
+      if (firstCat === 'image') resolvedType = 'image';
+      else if (firstCat === 'video') resolvedType = 'video';
+      else if (firstCat === 'audio') resolvedType = 'audio';
+      else resolvedType = 'document';
     }
 
     const newMessage: Message = {
@@ -104,7 +124,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       space_id: spaceId,
       sender_id: senderId,
       content,
-      type,
+      type: resolvedType,
       reply_to_id: replyToId,
       reply_to: replyToId ? get().messages.find((m) => m.id === replyToId) : null,
       is_edited: false,
@@ -113,7 +133,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pinned: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      attachments: createdAttachment ? [createdAttachment] : [],
+      attachments: createdAttachments,
       reactions: [],
       receipts: [],
     };
@@ -127,7 +147,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     playChime('subtle-pop');
 
     if (isFirebaseConfigured()) {
-      await sendMessageToFirestore(spaceId, newMessage);
+      try {
+        await sendMessageToFirestore(spaceId, newMessage);
+      } catch (err) {
+        console.error('Failed to sync message to Firestore:', err);
+      }
+    } else {
+      try {
+        const localKey = `ourspace_messages_${spaceId}`;
+        const local = localStorage.getItem(localKey);
+        const parsed = local ? JSON.parse(local) : [];
+        localStorage.setItem(localKey, JSON.stringify([...parsed, newMessage]));
+      } catch {}
     }
   },
 

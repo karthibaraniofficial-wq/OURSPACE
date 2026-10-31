@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.2] - 2026-10-31
+### Fixed
+- **Canonical Media Category Normalization**:
+  - Unified upload category mapping across all handlers to canonical values: `image`, `video`, `audio`, `document`.
+  - Storage paths strictly map to `spaces/{spaceId}/images/{userId}/{timestamp}_{fileId}` for photographs.
+- **Attachment Metadata Unification**:
+  - Extended `MessageAttachment` interface with `thumbnail_url`, `download_url`, and `storage_path`.
+  - Ensured dual-asset camera captures (original + thumbnail) persist metadata cleanly into Firestore without silent field discarding.
+- **Media URL Resolver & Zero-Raw-Storage-Path Guarantee**:
+  - Implemented `resolveMediaDownloadUrl()` with in-memory caching and Firebase Storage SDK resolution.
+  - Eliminated broken relative fallback to `att.file_path` in HTML `<img>` elements.
+  - Enhanced `ImageAttachment` in `MessageBubble.tsx` with async resolution, loading skeleton, retry action with cache clearing, lightbox modal zoom, and direct photo download.
+- **Idempotent Message Creation Flow**:
+  - Switched from `addDoc()` to `setDoc()` with client-generated stable message IDs (`msg-{random}-{timestamp}`).
+  - Synchronized optimistic UI IDs 1:1 with Firestore document IDs, completely preventing duplicate message bubbles and jitter on retries.
+- **Multi-Photo Staging & Failure Recovery**:
+  - Upgraded chat composer to support selecting multiple gallery photos simultaneously.
+  - Staged photos remain in client memory if an upload is interrupted, providing an immediate "Retry" button.
+- **Diagnostics & Legacy Recovery**:
+  - Added structured diagnostics tracking 11 lifecycle stages (`PHOTO_SELECTED` through `IMAGE_RENDERED`).
+  - Added `apps/web/src/lib/firebase/mediaRecovery.ts` for auditing legacy base64 attachments with dry-run support.
+- **Automated Verification**:
+  - Added `tests/image_delivery_repair.test.mjs` (69/69 total repository tests passing).
+
 ## [2.4.1] - 2026-10-31
 ### Added
 - **In-App Camera & Instant Photo Capture**:

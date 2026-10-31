@@ -42,7 +42,7 @@ interface StagedMedia {
 
 export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   const [text, setText] = useState('');
-  const [stagedMedia, setStagedMedia] = useState<StagedMedia | null>(null);
+  const [stagedMediaList, setStagedMediaList] = useState<StagedMedia[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -82,9 +82,11 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (audioPreviewRef.current) audioPreviewRef.current.pause();
-      if (stagedMedia?.previewUrl) URL.revokeObjectURL(stagedMedia.previewUrl);
+      stagedMediaList.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
     };
-  }, [stagedMedia]);
+  }, [stagedMediaList]);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setText(e.target.value);
@@ -98,79 +100,76 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     }
   };
 
-  // Handle Photo selection (dedicated image picker)
+  // Handle Photo selection (dedicated image picker with multiple photos support)
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
 
-    if (file.size > 50 * 1024 * 1024) {
-      setUploadError('Image size exceeds the 50MB platform limit.');
-      return;
+    for (const file of files) {
+      if (file.size > 50 * 1024 * 1024) {
+        setUploadError(`Photo "${file.name}" exceeds the 50MB platform limit.`);
+        return;
+      }
+      if (!file.type.startsWith('image/')) {
+        setUploadError(`File "${file.name}" is not a valid photograph.`);
+        return;
+      }
     }
 
-    if (!file.type.startsWith('image/')) {
-      setUploadError('Please select a valid photograph (JPG, PNG, WebP, GIF).');
-      return;
-    }
-
-    if (stagedMedia?.previewUrl) {
-      URL.revokeObjectURL(stagedMedia.previewUrl);
-    }
-
-    const previewUrl = URL.createObjectURL(file);
-    const staged: StagedMedia = {
+    const newStaged: StagedMedia[] = files.map((file) => ({
       file,
-      previewUrl,
+      previewUrl: URL.createObjectURL(file),
       category: 'image',
-    };
+    }));
 
-    // Calculate image dimensions
-    const img = new Image();
-    img.onload = () => {
-      staged.width = img.naturalWidth;
-      staged.height = img.naturalHeight;
-      setStagedMedia({ ...staged });
-    };
-    img.src = previewUrl;
-
-    setStagedMedia(staged);
+    setStagedMediaList((prev) => [...prev, ...newStaged]);
     setUploadError(null);
     if (imageInputRef.current) imageInputRef.current.value = '';
   };
 
-  // Handle generic file / document selection
+  // Handle generic file / document / video selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
 
-    if (file.size > 50 * 1024 * 1024) {
-      setUploadError('File size exceeds the 50MB limit.');
-      return;
+    for (const file of files) {
+      if (file.size > 50 * 1024 * 1024) {
+        setUploadError(`File "${file.name}" exceeds the 50MB limit.`);
+        return;
+      }
     }
 
-    let category: 'image' | 'video' | 'document' = 'document';
-    if (file.type.startsWith('image/')) category = 'image';
-    else if (file.type.startsWith('video/')) category = 'video';
-
-    if (stagedMedia?.previewUrl) {
-      URL.revokeObjectURL(stagedMedia.previewUrl);
-    }
-
-    const previewUrl = category === 'image' || category === 'video' ? URL.createObjectURL(file) : '';
-    setStagedMedia({
-      file,
-      previewUrl,
-      category,
+    const newStaged: StagedMedia[] = files.map((file) => {
+      let category: 'image' | 'video' | 'document' = 'document';
+      if (file.type.startsWith('image/')) category = 'image';
+      else if (file.type.startsWith('video/')) category = 'video';
+      return {
+        file,
+        previewUrl: category === 'image' || category === 'video' ? URL.createObjectURL(file) : '',
+        category,
+      };
     });
+
+    setStagedMediaList((prev) => [...prev, ...newStaged]);
     setUploadError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const removeStagedMedia = () => {
-    if (stagedMedia?.previewUrl) {
-      URL.revokeObjectURL(stagedMedia.previewUrl);
-    }
-    setStagedMedia(null);
+  const removeStagedMedia = (index: number) => {
+    setStagedMediaList((prev) => {
+      const target = prev[index];
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+    setUploadProgress(0);
+    setUploadError(null);
+  };
+
+  const clearAllStagedMedia = () => {
+    stagedMediaList.forEach((item) => {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    });
+    setStagedMediaList([]);
     setUploadProgress(0);
     setUploadError(null);
   };
@@ -365,45 +364,63 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
 
   const handleSend = async () => {
     if (!space || !user || isUploading) return;
-    if (!text.trim() && !stagedMedia) return;
+    if (!text.trim() && stagedMediaList.length === 0) return;
 
     try {
-      if (stagedMedia) {
+      if (stagedMediaList.length > 0) {
         setIsUploading(true);
         setUploadProgress(0);
         setUploadError(null);
 
-        // Upload actual media bytes to Firebase Cloud Storage with progress updates
-        const uploadResult = await uploadMediaToFirebaseStorage(
-          space.id,
-          stagedMedia.category,
-          stagedMedia.file,
-          (percent) => setUploadProgress(percent),
-          user.id
-        );
+        const uploadedAttachments = [];
+        const totalItems = stagedMediaList.length;
+
+        for (let i = 0; i < totalItems; i++) {
+          const item = stagedMediaList[i];
+          const uploadResult = await uploadMediaToFirebaseStorage(
+            space.id,
+            item.category,
+            item.file,
+            (percent) => {
+              const base = (i / totalItems) * 100;
+              const contribution = percent / totalItems;
+              setUploadProgress(Math.round(base + contribution));
+            },
+            user.id
+          );
+
+          uploadedAttachments.push({
+            file_name: uploadResult.fileName,
+            file_size: uploadResult.fileSize,
+            file_type: uploadResult.fileType,
+            media_category: item.category,
+            signed_url: uploadResult.downloadUrl,
+            download_url: uploadResult.downloadUrl,
+            file_path: uploadResult.storagePath,
+            storage_path: uploadResult.storagePath,
+            width: item.width || null,
+            height: item.height || null,
+          });
+        }
 
         // Write message to Firestore storing only metadata (no large base64 or blob URLs)
+        const primaryCat = uploadedAttachments[0]?.media_category;
+        const msgType = primaryCat === 'image' ? 'image' : (primaryCat || 'image');
+
         await sendMessage({
           spaceId: space.id,
           senderId: user.id,
           content: text.trim() || null,
-          type: stagedMedia.category,
+          type: msgType,
           replyToId: activeReply?.id || null,
-          attachment: {
-            file_name: uploadResult.fileName,
-            file_size: uploadResult.fileSize,
-            file_type: uploadResult.fileType,
-            media_category: stagedMedia.category,
-            signed_url: uploadResult.downloadUrl,
-            file_path: uploadResult.storagePath,
-            width: stagedMedia.width || null,
-            height: stagedMedia.height || null,
-          },
+          attachments: uploadedAttachments,
         });
 
-        // Clean up object URL
-        if (stagedMedia.previewUrl) URL.revokeObjectURL(stagedMedia.previewUrl);
-        setStagedMedia(null);
+        // Clean up object URLs
+        stagedMediaList.forEach((item) => {
+          if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        });
+        setStagedMediaList([]);
         setIsUploading(false);
         setUploadProgress(0);
       } else {
@@ -440,22 +457,22 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     setUploadError(null);
 
     try {
-      // 1. Resumable upload of original photo to Firebase Cloud Storage
+      // 1. Resumable upload of original photo to Firebase Cloud Storage using canonical 'image' category
       const uploadResult = await uploadMediaToFirebaseStorage(
         space.id,
-        'images',
+        'image',
         file,
         (percent) => setUploadProgress(percent),
         user.id
       );
 
-      // 2. Resumable upload of thumbnail to Firebase Cloud Storage
+      // 2. Resumable upload of thumbnail to Firebase Cloud Storage using canonical 'image' category
       let thumbUrl: string | undefined;
       let thumbPath: string | undefined;
       try {
         const thumbResult = await uploadMediaToFirebaseStorage(
           space.id,
-          'images',
+          'image',
           thumbFile,
           undefined,
           user.id
@@ -479,7 +496,9 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           file_type: uploadResult.fileType,
           media_category: 'image',
           signed_url: uploadResult.downloadUrl,
+          download_url: uploadResult.downloadUrl,
           file_path: uploadResult.storagePath,
+          storage_path: uploadResult.storagePath,
           thumbnail_url: thumbUrl || null,
           thumbnail_path: thumbPath || null,
           width: dimensions.width,
@@ -515,7 +534,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             <span>{speechError || uploadError}</span>
           </div>
           <div className="flex items-center gap-2">
-            {uploadError && stagedMedia && (
+            {uploadError && stagedMediaList.length > 0 && (
               <button
                 onClick={handleSend}
                 disabled={isUploading}
@@ -556,65 +575,84 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
         </div>
       )}
 
-      {/* Dedicated Photograph & Media Preview Staging Tray */}
-      {stagedMedia && (
-        <div className="flex items-center justify-between p-3 rounded-2xl bg-white/95 dark:bg-zinc-900 border border-rose-300 shadow-md">
-          <div className="flex items-center gap-3 min-w-0">
-            {stagedMedia.category === 'image' && (
-              <div className="relative w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-rose-200 shadow-sm">
-                <img
-                  src={stagedMedia.previewUrl}
-                  alt="Staged photo"
-                  className="w-full h-full object-cover"
-                />
-              </div>
+      {/* Dedicated Photograph & Media Preview Staging Tray (Supports Multiple Photos) */}
+      {stagedMediaList.length > 0 && (
+        <div className="flex flex-col gap-2 p-3 rounded-2xl bg-white/95 dark:bg-zinc-900 border border-rose-300 shadow-md">
+          <div className="flex items-center justify-between text-xs font-bold text-stone-700 dark:text-zinc-200">
+            <span>
+              {stagedMediaList.length} {stagedMediaList.length === 1 ? 'attachment' : 'attachments'} staged
+            </span>
+            {!isUploading && (
+              <button
+                type="button"
+                onClick={clearAllStagedMedia}
+                className="text-[11px] text-rose-500 hover:text-rose-600 font-semibold underline"
+              >
+                Clear all
+              </button>
             )}
-            {stagedMedia.category === 'video' && (
-              <div className="w-12 h-12 rounded-2xl bg-purple-100 dark:bg-purple-950/40 text-purple-600 flex items-center justify-center shrink-0">
-                <Film className="w-6 h-6" />
-              </div>
-            )}
-            {stagedMedia.category === 'document' && (
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center shrink-0">
-                <FileText className="w-6 h-6" />
-              </div>
-            )}
-
-            <div className="min-w-0">
-              <p className="text-xs font-bold text-stone-900 dark:text-zinc-100 truncate max-w-xs">
-                {stagedMedia.file.name}
-              </p>
-              <div className="flex items-center gap-2 text-[11px] text-stone-500 dark:text-zinc-400 mt-0.5">
-                <span>{formatBytes(stagedMedia.file.size)}</span>
-                <span>•</span>
-                <span className="capitalize text-rose-500 font-semibold">{stagedMedia.category}</span>
-              </div>
-
-              {/* Upload Progress Bar */}
-              {isUploading && (
-                <div className="w-48 mt-1.5 flex items-center gap-2">
-                  <div className="flex-1 h-1.5 rounded-full bg-rose-100 dark:bg-zinc-800 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-rose-500 to-pink-500 transition-all duration-200"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] font-bold text-rose-600 font-mono">
-                    {uploadProgress}%
-                  </span>
-                </div>
-              )}
-            </div>
           </div>
 
-          {!isUploading && (
-            <button
-              onClick={removeStagedMedia}
-              className="p-1.5 rounded-full hover:bg-stone-100 dark:hover:bg-zinc-800 text-stone-400 hover:text-red-500 transition-colors"
-              title="Cancel Attachment"
-            >
-              <X className="w-4 h-4" />
-            </button>
+          <div className="flex items-center gap-2 overflow-x-auto py-1">
+            {stagedMediaList.map((item, idx) => (
+              <div
+                key={idx}
+                className="relative group/staged flex items-center gap-2 p-1.5 pr-2.5 rounded-xl bg-rose-50/60 dark:bg-zinc-800 border border-rose-200 dark:border-zinc-700 shrink-0"
+              >
+                {item.category === 'image' ? (
+                  <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-rose-200">
+                    <img
+                      src={item.previewUrl}
+                      alt={item.file.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : item.category === 'video' ? (
+                  <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-950/40 text-purple-600 flex items-center justify-center shrink-0">
+                    <Film className="w-5 h-5" />
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 rounded-lg bg-rose-100 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                )}
+
+                <div className="min-w-0 max-w-[120px]">
+                  <p className="text-[11px] font-semibold text-stone-900 dark:text-zinc-100 truncate">
+                    {item.file.name}
+                  </p>
+                  <p className="text-[10px] text-stone-500 dark:text-zinc-400">
+                    {formatBytes(item.file.size)}
+                  </p>
+                </div>
+
+                {!isUploading && (
+                  <button
+                    type="button"
+                    onClick={() => removeStagedMedia(idx)}
+                    className="p-1 rounded-full hover:bg-rose-200 text-stone-400 hover:text-red-500 transition-colors ml-1"
+                    title="Remove attachment"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Upload Progress Bar */}
+          {isUploading && (
+            <div className="w-full mt-1 flex items-center gap-2">
+              <div className="flex-1 h-2 rounded-full bg-rose-100 dark:bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-rose-500 to-pink-500 transition-all duration-200"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-bold text-rose-600 font-mono">
+                {uploadProgress}%
+              </span>
+            </div>
           )}
         </div>
       )}
@@ -700,6 +738,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             ref={imageInputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp,image/gif"
+            multiple
             className="hidden"
             onChange={handleImageSelect}
           />
@@ -709,6 +748,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             ref={fileInputRef}
             type="file"
             accept=".pdf,.doc,.docx,.txt,.zip,video/*"
+            multiple
             className="hidden"
             onChange={handleFileSelect}
           />
@@ -810,7 +850,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           </div>
 
           {/* Voice Note Record Trigger or Send Button */}
-          {text.trim() || stagedMedia ? (
+          {text.trim() || stagedMediaList.length > 0 ? (
             <button
               type="button"
               onClick={handleSend}

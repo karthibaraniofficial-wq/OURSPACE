@@ -1,6 +1,6 @@
 {
   "name": "ourspace-monorepo",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "private": true,
   "description": "OURSPACE — Private Couple Communication & Connection Platform",
   "workspaces": [

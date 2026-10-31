@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Heart,
   Smile,
@@ -16,11 +16,15 @@ import {
   Play,
   Pause,
   Image as ImageIcon,
+  RotateCw,
+  Maximize2,
 } from 'lucide-react';
 import type { Message, UUID } from '@ourspace/types';
 import { formatChatTimestamp, formatBytes } from '@ourspace/shared';
 import { useChatStore } from '@/store/useChatStore';
 import { cn } from '@/lib/utils';
+import { resolveMediaDownloadUrl, clearMediaUrlCache } from '@/lib/firebase/storage';
+import { logMediaDiagnostic } from '@/lib/diagnostics/mediaDiagnostics';
 
 interface MessageBubbleProps {
   message: Message;
@@ -33,60 +37,201 @@ const QUICK_REACTIONS = ['❤️', '😍', '😂', '🥺', '🎉', '💋'];
 function ImageAttachment({
   att,
   onOpenMedia,
+  messageId,
 }: {
   att: any;
   onOpenMedia?: (url: string, type: string) => void;
+  messageId?: string;
 }) {
-  const [hasError, setHasError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const src = att.signed_url || att.file_path;
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(() => {
+    const direct = att.download_url || att.signed_url;
+    if (direct && (direct.startsWith('http://') || direct.startsWith('https://') || direct.startsWith('data:') || direct.startsWith('blob:'))) {
+      return direct;
+    }
+    if (att.file_path && (att.file_path.startsWith('http://') || att.file_path.startsWith('https://') || att.file_path.startsWith('blob:'))) {
+      return att.file_path;
+    }
+    return null;
+  });
+  const [isResolving, setIsResolving] = useState<boolean>(!resolvedUrl);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [hasError, setHasError] = useState<boolean>(false);
+  const [retryCount, setRetryCount] = useState<number>(0);
+
+  const rawPath = att.storage_path || att.file_path;
+  const initialUrl = att.download_url || att.signed_url;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function resolve() {
+      // If we already have a valid HTTP URL, no need to resolve from Storage
+      if (initialUrl && (initialUrl.startsWith('http://') || initialUrl.startsWith('https://') || initialUrl.startsWith('data:') || initialUrl.startsWith('blob:'))) {
+        if (isMounted) {
+          setResolvedUrl(initialUrl);
+          setIsResolving(false);
+        }
+        return;
+      }
+
+      if (rawPath && (rawPath.startsWith('http://') || rawPath.startsWith('https://') || rawPath.startsWith('blob:'))) {
+        if (isMounted) {
+          setResolvedUrl(rawPath);
+          setIsResolving(false);
+        }
+        return;
+      }
+
+      if (!rawPath) {
+        if (isMounted) {
+          setHasError(true);
+          setIsResolving(false);
+        }
+        return;
+      }
+
+      setIsResolving(true);
+      setHasError(false);
+
+      try {
+        const url = await resolveMediaDownloadUrl(rawPath, initialUrl);
+        if (!isMounted) return;
+        if (url) {
+          setResolvedUrl(url);
+          setIsResolving(false);
+        } else {
+          setHasError(true);
+          setIsResolving(false);
+          logMediaDiagnostic('IMAGE_LOAD_FAILED', {
+            messageId,
+            fileName: att.file_name,
+            reason: 'Storage download URL could not be resolved',
+          });
+        }
+      } catch (err: any) {
+        if (!isMounted) return;
+        setHasError(true);
+        setIsResolving(false);
+        logMediaDiagnostic('IMAGE_LOAD_FAILED', {
+          messageId,
+          fileName: att.file_name,
+          error: err.message,
+        });
+      }
+    }
+
+    resolve();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [rawPath, initialUrl, retryCount, messageId, att.file_name]);
+
+  const handleRetry = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (rawPath) {
+      clearMediaUrlCache(rawPath);
+    }
+    setHasError(false);
+    setIsLoading(true);
+    setResolvedUrl(null);
+    setRetryCount((prev) => prev + 1);
+  };
+
+  const handleImageLoad = () => {
+    setIsLoading(false);
+    logMediaDiagnostic('IMAGE_RENDERED', {
+      messageId,
+      fileName: att.file_name,
+      url: resolvedUrl?.substring(0, 50),
+    });
+  };
+
+  const handleImageError = () => {
+    setIsLoading(false);
+    setHasError(true);
+    logMediaDiagnostic('IMAGE_LOAD_FAILED', {
+      messageId,
+      fileName: att.file_name,
+      reason: 'HTMLImageElement onError triggered',
+    });
+  };
 
   if (hasError) {
     return (
-      <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-black/5 dark:bg-white/5 border border-dashed border-rose-300 text-center gap-2">
-        <ImageIcon className="w-8 h-8 text-rose-400" />
-        <span className="text-xs font-semibold text-stone-600 dark:text-zinc-300">
-          {att.file_name || 'Photograph'}
-        </span>
+      <div className="flex flex-col items-center justify-center p-5 rounded-2xl bg-rose-50/50 dark:bg-rose-950/20 border border-dashed border-rose-300 dark:border-rose-800 text-center gap-2 max-w-sm my-1">
+        <div className="p-2.5 rounded-full bg-rose-100 dark:bg-rose-900/50 text-rose-500">
+          <ImageIcon className="w-6 h-6" />
+        </div>
+        <div className="min-w-0 max-w-full">
+          <p className="text-xs font-semibold text-stone-700 dark:text-zinc-200 truncate">
+            {att.file_name || 'Photograph'}
+          </p>
+          <p className="text-[10px] text-rose-500/80">Failed to load photograph</p>
+        </div>
         <button
-          onClick={() => setHasError(false)}
-          className="text-[11px] font-bold text-rose-500 hover:text-rose-600 underline"
+          onClick={handleRetry}
+          type="button"
+          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-500 hover:bg-rose-600 text-white shadow-sm transition-transform active:scale-95"
         >
-          Tap to retry loading
+          <RotateCw className="w-3.5 h-3.5" />
+          Tap to retry
         </button>
       </div>
     );
   }
 
   return (
-    <div className="relative group/photo rounded-2xl sm:rounded-3xl overflow-hidden shadow-md max-w-full my-1">
-      {isLoading && (
-        <div className="w-64 h-48 rounded-2xl bg-rose-100/40 dark:bg-zinc-800 animate-pulse flex items-center justify-center text-rose-300">
+    <div className="relative group/photo rounded-2xl sm:rounded-3xl overflow-hidden shadow-md max-w-full my-1 bg-stone-100 dark:bg-zinc-900">
+      {(isResolving || isLoading) && (
+        <div className="w-64 h-48 sm:h-56 rounded-2xl bg-gradient-to-br from-rose-100/50 to-pink-50/50 dark:from-zinc-800 dark:to-zinc-900 animate-pulse flex flex-col items-center justify-center text-rose-400 gap-2">
           <ImageIcon className="w-8 h-8 animate-bounce" />
+          <span className="text-[11px] font-medium text-stone-500 dark:text-zinc-400">
+            {isResolving ? 'Resolving photo...' : 'Loading photo...'}
+          </span>
         </div>
       )}
-      <img
-        src={src}
-        alt={att.file_name || 'Photograph'}
-        onLoad={() => setIsLoading(false)}
-        onError={() => {
-          setIsLoading(false);
-          setHasError(true);
-        }}
-        onClick={() => onOpenMedia?.(src, 'image')}
-        className={cn(
-          'max-h-80 sm:max-h-96 w-auto max-w-full rounded-2xl sm:rounded-3xl object-cover cursor-pointer transition-all duration-300 group-hover/photo:scale-[1.01]',
-          isLoading && 'hidden'
-        )}
-      />
-      {!isLoading && (
-        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-end justify-between p-3 pointer-events-none">
-          <span className="text-[11px] font-semibold text-white/90 truncate max-w-[70%]">
+
+      {resolvedUrl && (
+        <img
+          src={resolvedUrl}
+          alt={att.file_name || 'Photograph'}
+          loading="lazy"
+          onLoad={handleImageLoad}
+          onError={handleImageError}
+          onClick={() => onOpenMedia?.(resolvedUrl, 'image')}
+          className={cn(
+            'max-h-80 sm:max-h-96 w-auto max-w-full rounded-2xl sm:rounded-3xl object-cover cursor-pointer transition-transform duration-300 group-hover/photo:scale-[1.01]',
+            (isResolving || isLoading) && 'hidden'
+          )}
+        />
+      )}
+
+      {!isResolving && !isLoading && resolvedUrl && (
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-end justify-between p-3 pointer-events-none">
+          <span className="text-[11px] font-medium text-white/90 truncate max-w-[60%]">
             {att.file_name}
           </span>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-md text-white">
-            Tap to view
-          </span>
+          <div className="flex items-center gap-1.5 pointer-events-auto">
+            <a
+              href={resolvedUrl}
+              download={att.file_name || 'photo.jpg'}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="p-1.5 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 text-white transition-colors"
+              title="Download photograph"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </a>
+            <button
+              onClick={() => onOpenMedia?.(resolvedUrl, 'image')}
+              className="p-1.5 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 text-white transition-colors"
+              title="Full screen view"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -268,25 +413,25 @@ export function MessageBubble({ message, currentUserId, onOpenMedia }: MessageBu
           <div className="flex flex-col gap-2 mb-2">
             {message.attachments.map((att) => (
               <div key={att.id} className="rounded-2xl overflow-hidden">
-                {att.media_category === 'image' && (
-                  <ImageAttachment att={att} onOpenMedia={onOpenMedia} />
+                {(att.media_category === 'image' || att.media_category === 'images' || att.file_type?.startsWith('image/')) && (
+                  <ImageAttachment att={att} onOpenMedia={onOpenMedia} messageId={message.id} />
                 )}
 
-                {att.media_category === 'video' && (
+                {(att.media_category === 'video' || att.media_category === 'videos' || att.file_type?.startsWith('video/')) && (
                   <video
-                    src={att.signed_url || att.file_path}
+                    src={att.download_url || att.signed_url || att.file_path}
                     controls
                     className="max-h-72 w-full rounded-2xl bg-black"
                   />
                 )}
 
-                {att.media_category === 'audio' && (
+                {(att.media_category === 'audio' || att.file_type?.startsWith('audio/')) && (
                   <AudioMessagePlayer att={att} isMine={isMine} />
                 )}
 
-                {att.media_category === 'document' && (
+                {(att.media_category === 'document' || (!att.media_category && !att.file_type?.startsWith('image/') && !att.file_type?.startsWith('video/') && !att.file_type?.startsWith('audio/'))) && (
                   <a
-                    href={att.signed_url || att.file_path}
+                    href={att.download_url || att.signed_url || att.file_path}
                     download={att.file_name}
                     target="_blank"
                     rel="noreferrer"
