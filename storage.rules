@@ -34,6 +34,17 @@ service firebase.storage {
       allow delete: if isMemberOfSpace(spaceId);
     }
 
+    // User-isolated encrypted locker files
+    match /users/{uid}/vault/{allVaultFiles=**} {
+      allow read, write, delete: if isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // User profile pictures
+    match /users/{uid}/profile/{fileName} {
+      allow read: if isAuthenticated();
+      allow write, delete: if isAuthenticated() && request.auth.uid == uid && isValidFileSize();
+    }
+
     // Default deny for everything else
     match /{allPaths=**} {
       allow read, write: if false;

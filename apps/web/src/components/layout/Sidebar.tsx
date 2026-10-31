@@ -12,6 +12,10 @@ import {
   Sparkles,
   Settings,
   Users,
+  BookOpen,
+  Lock,
+  Compass,
+  Smile,
   LogOut,
   Radio,
 } from 'lucide-react';
@@ -24,9 +28,13 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Heart },
   { href: '/dashboard/chat', label: 'Chats', icon: MessageCircleHeart },
   { href: '/dashboard/gallery', label: 'Gallery', icon: ImageIcon },
+  { href: '/dashboard/albums', label: 'Albums', icon: BookOpen },
   { href: '/dashboard/calls', label: 'Calls', icon: PhoneCall },
   { href: '/dashboard/reminders', label: 'Reminders', icon: CalendarCheck },
   { href: '/dashboard/memories', label: 'Memories', icon: Sparkles },
+  { href: '/dashboard/connect', label: 'Connection', icon: Smile },
+  { href: '/dashboard/plans', label: 'Plans & Goals', icon: Compass },
+  { href: '/dashboard/locker', label: 'OUR LOCKER', icon: Lock, isLocker: true },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 

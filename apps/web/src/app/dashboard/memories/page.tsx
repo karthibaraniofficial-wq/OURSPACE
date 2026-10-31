@@ -29,40 +29,9 @@ interface MilestoneEvent {
   notes?: string;
 }
 
-const INITIAL_EVENTS: MilestoneEvent[] = [
-  {
-    id: 'evt-1',
-    title: 'Our 4th Anniversary',
-    date: '2027-06-15',
-    type: 'anniversary',
-    notes: 'Four incredible years of unconditional love and adventures ❤️',
-  },
-  {
-    id: 'evt-2',
-    title: 'Jordan’s Birthday 🎂',
-    date: '2026-12-14',
-    type: 'birthday',
-    notes: 'Surprise weekend staycation planned!',
-  },
-  {
-    id: 'evt-3',
-    title: 'Christmas Getaway Trip ❄️',
-    date: '2026-12-24',
-    type: 'trip',
-    notes: 'Cabin in the mountains with a fireplace.',
-  },
-  {
-    id: 'evt-4',
-    title: 'First Date Anniversary',
-    date: '2027-03-20',
-    type: 'date_night',
-    notes: 'Visiting that tiny coffee shop where we talked for 5 hours.',
-  },
-];
-
 export default function MemoriesPage() {
   const { user, space, partner } = useAuthStore();
-  const [events, setEvents] = useState<MilestoneEvent[]>(INITIAL_EVENTS);
+  const [events, setEvents] = useState<MilestoneEvent[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // New Event Form State

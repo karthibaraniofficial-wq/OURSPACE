@@ -150,13 +150,59 @@ export function validateEnv(env: Record<string, string | undefined>, isServer = 
   return result.data;
 }
 
-export type RegisterInput = z.infer<typeof registerSchema>;
-export type LoginInput = z.infer<typeof loginSchema>;
-export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
-export type CreateSpaceInput = z.infer<typeof createSpaceSchema>;
-export type JoinSpaceInput = z.infer<typeof joinSpaceSchema>;
-export type SendMessageInput = z.infer<typeof sendMessageSchema>;
-export type CreateReminderInput = z.infer<typeof createReminderSchema>;
-export type CreateSharedEventInput = z.infer<typeof createSharedEventSchema>;
-export type UpdateNotificationPreferencesInput = z.infer<typeof updateNotificationPreferencesSchema>;
+export const createAlbumSchema = z.object({
+  space_id: z.string().min(1, 'Space ID is required'),
+  title: z.string().trim().min(1, 'Title is required').max(100),
+  description: z.string().max(500).nullable().optional(),
+  category: z.string().min(1).default('Everyday Moments'),
+  album_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  visibility: z.enum(['personal', 'shared']).default('shared'),
+  cover_url: z.string().nullable().optional(),
+});
+
+export const createLockerItemSchema = z.object({
+  section: z.enum([
+    'notes',
+    'personal_details',
+    'documents',
+    'important_dates',
+    'saved_info',
+    'letters',
+    'travel',
+    'emergency',
+    'photos',
+    'custom',
+  ]),
+  folder_id: z.string().nullable().optional(),
+  title_ciphertext: z.string().min(1),
+  payload_ciphertext: z.string().min(1),
+  iv: z.string().min(1),
+  salt: z.string().min(1),
+});
+
+export const resetLockerSchema = z.object({
+  confirmation_phrase: z.literal('DELETE MY LOCKER'),
+});
+
+export const createBucketListItemSchema = z.object({
+  space_id: z.string().min(1),
+  title: z.string().trim().min(1).max(200),
+  category: z.enum(['travel', 'adventure', 'romantic', 'food', 'home', 'custom']).default('romantic'),
+  target_date: z.string().nullable().optional(),
+});
+
+export const createDatePlanSchema = z.object({
+  space_id: z.string().min(1),
+  title: z.string().trim().min(1).max(150),
+  idea_category: z.enum(['romantic', 'adventurous', 'cozy', 'budget', 'foodie']).default('romantic'),
+  scheduled_for: z.string(),
+  budget_estimate: z.number().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export type CreateAlbumInput = z.infer<typeof createAlbumSchema>;
+export type CreateLockerItemInput = z.infer<typeof createLockerItemSchema>;
+export type ResetLockerInput = z.infer<typeof resetLockerSchema>;
+export type CreateBucketListItemInput = z.infer<typeof createBucketListItemSchema>;
+export type CreateDatePlanInput = z.infer<typeof createDatePlanSchema>;
 

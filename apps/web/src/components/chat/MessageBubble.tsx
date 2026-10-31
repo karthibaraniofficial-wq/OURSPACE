@@ -56,7 +56,113 @@ function ImageAttachment({
   );
 }
 
-export function MessageBubble({ message, currentUserId, onOpenMedia }: MessageBubbleProps) {
+function AudioMessagePlayer({ att, isMine }: { att: any; isMine: boolean }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(att.duration_seconds || 0);
+  const [playbackSpeed, setPlaybackSpeed] = useState<1 | 1.5 | 2>(1);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const cycleSpeed = () => {
+    const nextSpeed = playbackSpeed === 1 ? 1.5 : playbackSpeed === 1.5 ? 2 : 1;
+    setPlaybackSpeed(nextSpeed);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = nextSpeed;
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+      if (audioRef.current.duration && !isNaN(audioRef.current.duration)) {
+        setDuration(audioRef.current.duration);
+      }
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const seekTime = Number(e.target.value);
+    setCurrentTime(seekTime);
+    if (audioRef.current) {
+      audioRef.current.currentTime = seekTime;
+    }
+  };
+
+  const formatSecs = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 p-3 rounded-2xl bg-black/10 dark:bg-white/10 min-w-[220px] max-w-sm">
+      <audio
+        ref={audioRef}
+        src={att.signed_url || att.file_path}
+        onTimeUpdate={handleTimeUpdate}
+        onEnded={() => setIsPlaying(false)}
+        onLoadedMetadata={() => {
+          if (audioRef.current?.duration) setDuration(audioRef.current.duration);
+        }}
+      />
+
+      <div className="flex items-center gap-2.5">
+        <button
+          onClick={togglePlay}
+          className="w-9 h-9 rounded-full bg-rose-500 text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-sm shrink-0"
+        >
+          {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
+        </button>
+
+        {/* Progress Bar & Waveform Preview */}
+        <div className="flex-1 flex flex-col gap-1">
+          <input
+            type="range"
+            min={0}
+            max={duration || 1}
+            step={0.1}
+            value={currentTime}
+            onChange={handleSeek}
+            className="w-full accent-rose-500 h-1.5 bg-black/20 rounded-lg cursor-pointer"
+          />
+
+          <div className="flex items-center justify-between text-[10px] opacity-75 font-mono">
+            <span>{formatSecs(currentTime)}</span>
+            <span>{formatSecs(duration)}</span>
+          </div>
+        </div>
+
+        {/* Playback Speed Pill */}
+        <button
+          onClick={cycleSpeed}
+          className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 hover:bg-white/30 text-inherit transition-colors shrink-0"
+          title="Toggle speed: 1x, 1.5x, 2x"
+        >
+          {playbackSpeed}x
+        </button>
+      </div>
+
+      {att.transcript_text && (
+        <div className="mt-1 pt-1 border-t border-white/10 text-[11px] leading-tight opacity-90">
+          <span className="font-bold opacity-75">Transcription: </span>
+          <span>{att.transcript_text}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
   const {
     activeReply,
     setActiveReply,
@@ -134,6 +240,10 @@ export function MessageBubble({ message, currentUserId, onOpenMedia }: MessageBu
                     controls
                     className="max-h-72 w-full rounded-2xl bg-black"
                   />
+                )}
+
+                {att.media_category === 'audio' && (
+                  <AudioMessagePlayer att={att} isMine={isMine} />
                 )}
 
                 {att.media_category === 'document' && (

@@ -34,6 +34,19 @@ service cloud.firestore {
       match /settings/{settingId} {
         allow read, write: if isUser(uid);
       }
+
+      // Our Locker: Encrypted Private Vault
+      match /personalVault/{vaultId} {
+        allow read, write: if isUser(uid);
+
+        match /items/{itemId} {
+          allow read, write: if isUser(uid);
+        }
+
+        match /folders/{folderId} {
+          allow read, write: if isUser(uid);
+        }
+      }
     }
 
     // 2. Invitations (Controlled couple pairing)
@@ -105,8 +118,41 @@ service cloud.firestore {
         allow update, delete: if isMemberOfSpace(spaceId);
       }
 
-      // Albums
+      // Memory Albums & Album Items
       match /albums/{albumId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+
+        match /items/{itemId} {
+          allow read, write: if isMemberOfSpace(spaceId);
+        }
+      }
+
+      // Couple Planning Hub (Bucket List, Date Plans, Travel, Goals, Expenses)
+      match /bucketList/{itemId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+      }
+      match /datePlans/{planId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+      }
+      match /travelPlans/{planId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+      }
+      match /shoppingLists/{listId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+      }
+      match /goals/{goalId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+      }
+      match /expenses/{expenseId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+      }
+      match /letters/{letterId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+      }
+      match /dailyConnect/{entryId} {
+        allow read, write: if isMemberOfSpace(spaceId);
+      }
+      match /relationshipJournal/{entryId} {
         allow read, write: if isMemberOfSpace(spaceId);
       }
 

@@ -38,23 +38,9 @@ interface ReminderItem {
   assignedToName?: string;
 }
 
-const INITIAL_REMINDERS: ReminderItem[] = [
-  {
-    id: 'rem-1',
-    title: 'Reserve table at Italian restaurant',
-    description: 'Booking by the window for cozy dinner',
-    dueDate: new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 16),
-    recurrence: 'none',
-    priority: 'high',
-    isCompleted: false,
-    isShared: true,
-    assignedToName: 'Both of us',
-  },
-];
-
 export default function RemindersPage() {
   const { user, space, partner } = useAuthStore();
-  const [reminders, setReminders] = useState<ReminderItem[]>(INITIAL_REMINDERS);
+  const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
 
@@ -70,21 +56,19 @@ export default function RemindersPage() {
   React.useEffect(() => {
     if (!space?.id) return;
     const unsub = subscribeToFirestoreReminders(space.id, (firestoreReminders) => {
-      if (firestoreReminders.length > 0) {
-        setReminders(
-          firestoreReminders.map((r) => ({
-            id: r.id,
-            title: r.title,
-            description: r.description || undefined,
-            dueDate: r.due_date,
-            recurrence: r.recurrence as any,
-            priority: r.priority as any,
-            isCompleted: r.is_completed,
-            isShared: Boolean(r.assigned_to === null || r.assigned_to === 'both'),
-            assignedToName: r.assigned_to === partner?.id ? partner?.display_name : 'Both of us',
-          }))
-        );
-      }
+      setReminders(
+        firestoreReminders.map((r) => ({
+          id: r.id,
+          title: r.title,
+          description: r.description || undefined,
+          dueDate: r.due_date,
+          recurrence: r.recurrence as any,
+          priority: r.priority as any,
+          isCompleted: r.is_completed,
+          isShared: Boolean(r.assigned_to === null || r.assigned_to === 'both'),
+          assignedToName: r.assigned_to === partner?.id ? partner?.display_name : 'Both of us',
+        }))
+      );
     });
     return () => unsub();
   }, [space?.id, partner?.id, partner?.display_name]);

@@ -38,115 +38,14 @@ interface ChatState {
   cleanupListeners: () => void;
 }
 
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 'msg-001',
-    conversation_id: 'main',
-    space_id: '11111111-1111-1111-1111-111111111111',
-    sender_id: '00000000-0000-0000-0000-000000000002', // Jordan
-    content: 'Good morning my love! Hope you slept well ✨',
-    type: 'text',
-    reply_to_id: null,
-    is_edited: false,
-    edited_at: null,
-    deleted_for_all: false,
-    pinned: false,
-    created_at: new Date(Date.now() - 3600000 * 3).toISOString(),
-    updated_at: new Date(Date.now() - 3600000 * 3).toISOString(),
-    reactions: [
-      {
-        id: 'rx-001',
-        message_id: 'msg-001',
-        space_id: '11111111-1111-1111-1111-111111111111',
-        user_id: '00000000-0000-0000-0000-000000000001',
-        emoji: '❤️',
-        created_at: new Date().toISOString(),
-      },
-    ],
-  },
-  {
-    id: 'msg-002',
-    conversation_id: 'main',
-    space_id: '11111111-1111-1111-1111-111111111111',
-    sender_id: '00000000-0000-0000-0000-000000000001', // Alex
-    content: 'Morning sweetheart! Just making coffee. Are we still on for our dinner date tonight?',
-    type: 'text',
-    reply_to_id: 'msg-001',
-    is_edited: false,
-    edited_at: null,
-    deleted_for_all: false,
-    pinned: true,
-    created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-    updated_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-  },
-  {
-    id: 'msg-003',
-    conversation_id: 'main',
-    space_id: '11111111-1111-1111-1111-111111111111',
-    sender_id: '00000000-0000-0000-0000-000000000002', // Jordan
-    content: 'Absolutely! I booked that cozy Italian place by the river for 7:30 PM 🍝🥂',
-    type: 'text',
-    reply_to_id: null,
-    is_edited: false,
-    edited_at: null,
-    deleted_for_all: false,
-    pinned: false,
-    created_at: new Date(Date.now() - 3600000 * 1).toISOString(),
-    updated_at: new Date(Date.now() - 3600000 * 1).toISOString(),
-    reactions: [
-      {
-        id: 'rx-002',
-        message_id: 'msg-003',
-        space_id: '11111111-1111-1111-1111-111111111111',
-        user_id: '00000000-0000-0000-0000-000000000001',
-        emoji: '😍',
-        created_at: new Date().toISOString(),
-      },
-    ],
-  },
-  {
-    id: 'msg-004',
-    conversation_id: 'main',
-    space_id: '11111111-1111-1111-1111-111111111111',
-    sender_id: '00000000-0000-0000-0000-000000000001',
-    content: 'Look at the sunrise from the balcony earlier today!',
-    type: 'image',
-    reply_to_id: null,
-    is_edited: false,
-    edited_at: null,
-    deleted_for_all: false,
-    pinned: false,
-    created_at: new Date(Date.now() - 1800000).toISOString(),
-    updated_at: new Date(Date.now() - 1800000).toISOString(),
-    attachments: [
-      {
-        id: 'att-001',
-        message_id: 'msg-004',
-        space_id: '11111111-1111-1111-1111-111111111111',
-        file_path: 'mock/sunrise.jpg',
-        file_name: 'sunrise_balcony.jpg',
-        file_size: 2450000,
-        file_type: 'image/jpeg',
-        media_category: 'image',
-        thumbnail_path: null,
-        duration_seconds: null,
-        width: 1200,
-        height: 800,
-        created_at: new Date(Date.now() - 1800000).toISOString(),
-        signed_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1200&auto=format&fit=crop&q=80',
-      },
-    ],
-  },
-];
-
 let firestoreMessagesUnsubscribe: (() => void) | null = null;
 
 export const useChatStore = create<ChatState>((set, get) => ({
-  messages: INITIAL_MESSAGES,
+  messages: [],
   isLoading: false,
   isPartnerTyping: false,
   activeReply: null,
-  pinnedMessages: INITIAL_MESSAGES.filter((m) => m.pinned),
+  pinnedMessages: [],
   searchQuery: '',
 
   fetchMessages: async (spaceId) => {
@@ -156,17 +55,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (firestoreMessagesUnsubscribe) firestoreMessagesUnsubscribe();
 
         firestoreMessagesUnsubscribe = subscribeToFirestoreMessages(spaceId, (realtimeMsgs) => {
-          if (realtimeMsgs && realtimeMsgs.length > 0) {
-            set({
-              messages: realtimeMsgs,
-              pinnedMessages: realtimeMsgs.filter((m) => m.pinned),
-            });
-          }
+          set({
+            messages: realtimeMsgs || [],
+            pinnedMessages: (realtimeMsgs || []).filter((m) => m.pinned),
+            isLoading: false,
+          });
+        });
+      } else {
+        const local = localStorage.getItem(`ourspace_messages_${spaceId}`);
+        const parsed = local ? JSON.parse(local) : [];
+        set({
+          messages: parsed,
+          pinnedMessages: parsed.filter((m: Message) => m.pinned),
+          isLoading: false,
         });
       }
-    } catch (err) {
-      console.warn('Failed to listen to messages:', err);
-    } finally {
+    } catch {
       set({ isLoading: false });
     }
   },
