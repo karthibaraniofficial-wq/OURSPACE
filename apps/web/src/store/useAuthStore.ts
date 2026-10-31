@@ -173,8 +173,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { success: true };
     } else {
       if (process.env.NODE_ENV === 'production') {
-        set({ isLoading: false, error: 'Authentication service unconfigured.' });
-        return { success: false, error: 'Authentication service unconfigured.' };
+        const unconfiguredMsg = 'Firebase Authentication is unconfigured: Please configure NEXT_PUBLIC_FIREBASE_API_KEY in Vercel Environment Variables, or use the 1-Click Demo Profiles below to test.';
+        set({ isLoading: false, error: unconfiguredMsg });
+        return { success: false, error: unconfiguredMsg };
       }
       // Local demo auth
       const user = email.includes('jordan') ? DEMO_USER_2 : DEMO_USER_1;
@@ -200,8 +201,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { success: true };
     } else {
       if (process.env.NODE_ENV === 'production') {
-        set({ isLoading: false, error: 'Registration service unconfigured.' });
-        return { success: false, error: 'Registration service unconfigured.' };
+        const unconfiguredMsg = 'Firebase Authentication is unconfigured: Please configure NEXT_PUBLIC_FIREBASE_API_KEY in Vercel Environment Variables, or use the 1-Click Demo Profiles below to test.';
+        set({ isLoading: false, error: unconfiguredMsg });
+        return { success: false, error: unconfiguredMsg };
       }
       const newUser: Profile = {
         id: 'usr_' + Math.random().toString(36).substring(2, 9),

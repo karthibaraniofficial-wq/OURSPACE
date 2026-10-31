@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/Input';
 
 export default function AuthPage() {
   const router = useRouter();
-  const { login, register, isLoading } = useAuthStore();
+  const { login, register, switchDemoUser, isLoading } = useAuthStore();
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -42,13 +42,10 @@ export default function AuthPage() {
     }
   };
 
-  const handleQuickDemo = async (userNum: 1 | 2) => {
+  const handleQuickDemo = (userNum: 1 | 2) => {
     setErrorMsg('');
-    const demoEmail = userNum === 1 ? 'alex@ourspace.app' : 'jordan@ourspace.app';
-    const res = await login(demoEmail, 'Secret123!');
-    if (res.success) {
-      router.replace('/dashboard');
-    }
+    switchDemoUser(userNum);
+    router.replace('/dashboard');
   };
 
   return (
