@@ -12,6 +12,9 @@ interface CallState {
   callDuration: number;
   networkQuality: 'excellent' | 'good' | 'poor';
   isConnecting: boolean;
+  liveKitToken: string | null;
+  liveKitUrl: string | null;
+  errorMessage: string | null;
 
   // Actions
   initiateCall: (params: {
@@ -27,9 +30,12 @@ interface CallState {
   toggleMute: () => void;
   toggleVideo: () => void;
   setCallDuration: (duration: number) => void;
+  fetchCallToken: (roomName: string) => Promise<void>;
+  setErrorMessage: (msg: string | null) => void;
 }
 
 let ringInterval: NodeJS.Timeout | null = null;
+let ringingTimeout: NodeJS.Timeout | null = null;
 let durationInterval: NodeJS.Timeout | null = null;
 let callSessionUnsubscribe: (() => void) | null = null;
 
@@ -41,9 +47,16 @@ export const useCallStore = create<CallState>((set, get) => ({
   callDuration: 0,
   networkQuality: 'excellent',
   isConnecting: false,
+  liveKitToken: null,
+  liveKitUrl: null,
+  errorMessage: null,
+
+  setErrorMessage: (msg) => set({ errorMessage: msg }),
 
   initiateCall: async ({ spaceId, caller, receiver, type }) => {
-    const callId = 'call-' + Math.random().toString(36).substring(2, 9);
+    const callId = 'call-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+    const roomName = `ourspace-${spaceId.substring(0, 8)}-${callId}`;
+
     const newSession: CallSession = {
       id: callId,
       space_id: spaceId,
@@ -51,7 +64,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       receiver_id: receiver.id,
       call_type: type,
       status: 'ringing',
-      room_name: `ourspace-${spaceId.substring(0, 8)}`,
+      room_name: roomName,
       started_at: new Date().toISOString(),
       answered_at: null,
       ended_at: null,
@@ -67,6 +80,9 @@ export const useCallStore = create<CallState>((set, get) => ({
       isVideoEnabled: type === 'video',
       callDuration: 0,
       isConnecting: true,
+      liveKitToken: null,
+      liveKitUrl: null,
+      errorMessage: null,
     });
 
     playChime('call-ringtone');
@@ -75,9 +91,20 @@ export const useCallStore = create<CallState>((set, get) => ({
       if (get().activeCall?.status === 'ringing') {
         playChime('call-ringtone');
       } else {
-        if (ringInterval) clearInterval(ringInterval);
+        if (ringInterval) {
+          clearInterval(ringInterval);
+          ringInterval = null;
+        }
       }
     }, 2800);
+
+    // 45-second ringing timeout
+    if (ringingTimeout) clearTimeout(ringingTimeout);
+    ringingTimeout = setTimeout(() => {
+      if (get().activeCall?.status === 'ringing') {
+        get().endCall();
+      }
+    }, 45000);
 
     if (isFirebaseConfigured()) {
       const db = getFirebaseFirestore();
@@ -88,41 +115,61 @@ export const useCallStore = create<CallState>((set, get) => ({
         receiverId: receiver.id,
         callType: type,
         status: 'ringing',
-        roomName: newSession.room_name,
+        roomName,
         startedAt: serverTimestamp(),
       });
 
       // Listen for partner answering/declining
       if (callSessionUnsubscribe) callSessionUnsubscribe();
-      callSessionUnsubscribe = onSnapshot(callRef, (snapshot) => {
+      callSessionUnsubscribe = onSnapshot(callRef, async (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
           if (data.status === 'active' && get().activeCall?.status === 'ringing') {
-            get().acceptCall();
+            if (ringingTimeout) clearTimeout(ringingTimeout);
+            if (ringInterval) {
+              clearInterval(ringInterval);
+              ringInterval = null;
+            }
+
+            set((state) => ({
+              activeCall: state.activeCall
+                ? {
+                    ...state.activeCall,
+                    status: 'active',
+                    answered_at: new Date().toISOString(),
+                  }
+                : null,
+              isConnecting: false,
+            }));
+
+            playChime('modern-ping');
+            if (durationInterval) clearInterval(durationInterval);
+            durationInterval = setInterval(() => {
+              set((state) => ({ callDuration: state.callDuration + 1 }));
+            }, 1000);
+
+            // Fetch LiveKit room token
+            await get().fetchCallToken(roomName);
           } else if (data.status === 'declined' || data.status === 'ended') {
             get().endCall();
           }
         }
       });
     }
-
-    // Auto-answer simulation for instant demoing after 3.5 seconds
-    setTimeout(() => {
-      if (get().activeCall?.status === 'ringing') {
-        get().acceptCall();
-      }
-    }, 3800);
   },
 
   receiveCall: (session) => {
-    set({ incomingCall: session });
+    set({ incomingCall: session, errorMessage: null });
     playChime('call-ringtone');
     if (ringInterval) clearInterval(ringInterval);
     ringInterval = setInterval(() => {
       if (get().incomingCall) {
         playChime('call-ringtone');
       } else {
-        if (ringInterval) clearInterval(ringInterval);
+        if (ringInterval) {
+          clearInterval(ringInterval);
+          ringInterval = null;
+        }
       }
     }, 2800);
   },
@@ -131,6 +178,10 @@ export const useCallStore = create<CallState>((set, get) => ({
     if (ringInterval) {
       clearInterval(ringInterval);
       ringInterval = null;
+    }
+    if (ringingTimeout) {
+      clearTimeout(ringingTimeout);
+      ringingTimeout = null;
     }
 
     const currentCall = get().activeCall || get().incomingCall;
@@ -147,6 +198,8 @@ export const useCallStore = create<CallState>((set, get) => ({
       incomingCall: null,
       isConnecting: false,
       callDuration: 0,
+      isVideoEnabled: acceptedCall.call_type === 'video',
+      isMuted: false,
     });
 
     playChime('modern-ping');
@@ -164,6 +217,58 @@ export const useCallStore = create<CallState>((set, get) => ({
         answeredAt: serverTimestamp(),
       });
     }
+
+    // Connect receiver to the same LiveKit room
+    await get().fetchCallToken(acceptedCall.room_name);
+  },
+
+  fetchCallToken: async (roomName: string) => {
+    try {
+      const currentCall = get().activeCall;
+      if (!currentCall) return;
+
+      const participantId = currentCall.receiver?.id || 'partner';
+      const participantName = currentCall.receiver?.display_name || 'My Partner';
+
+      let authHeader = 'Bearer authorized-space-member';
+      if (isFirebaseConfigured()) {
+        try {
+          const { getFirebaseAuth } = await import('@/lib/firebase/firebase');
+          const idToken = await getFirebaseAuth().currentUser?.getIdToken();
+          if (idToken) authHeader = `Bearer ${idToken}`;
+        } catch {}
+      }
+
+      const res = await fetch('/api/livekit/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          roomName,
+          participantId,
+          participantName,
+          spaceId: currentCall.space_id,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.warn('[LiveKit Token Error]', err);
+        return;
+      }
+
+      const data = await res.json();
+      if (data.token) {
+        set({
+          liveKitToken: data.token,
+          liveKitUrl: data.server_url || process.env.NEXT_PUBLIC_LIVEKIT_URL || null,
+        });
+      }
+    } catch (err) {
+      console.error('[Failed to fetch LiveKit token]', err);
+    }
   },
 
   declineCall: async () => {
@@ -171,13 +276,24 @@ export const useCallStore = create<CallState>((set, get) => ({
       clearInterval(ringInterval);
       ringInterval = null;
     }
+    if (ringingTimeout) {
+      clearTimeout(ringingTimeout);
+      ringingTimeout = null;
+    }
     if (callSessionUnsubscribe) {
       callSessionUnsubscribe();
       callSessionUnsubscribe = null;
     }
 
     const current = get().incomingCall || get().activeCall;
-    set({ incomingCall: null, activeCall: null, isConnecting: false });
+    set({
+      incomingCall: null,
+      activeCall: null,
+      isConnecting: false,
+      liveKitToken: null,
+      liveKitUrl: null,
+      errorMessage: null,
+    });
 
     if (isFirebaseConfigured() && current) {
       const db = getFirebaseFirestore();
@@ -194,6 +310,10 @@ export const useCallStore = create<CallState>((set, get) => ({
       clearInterval(ringInterval);
       ringInterval = null;
     }
+    if (ringingTimeout) {
+      clearTimeout(ringingTimeout);
+      ringingTimeout = null;
+    }
     if (durationInterval) {
       clearInterval(durationInterval);
       durationInterval = null;
@@ -206,7 +326,15 @@ export const useCallStore = create<CallState>((set, get) => ({
     const current = get().activeCall;
     const duration = get().callDuration;
 
-    set({ activeCall: null, incomingCall: null, callDuration: 0, isConnecting: false });
+    set({
+      activeCall: null,
+      incomingCall: null,
+      callDuration: 0,
+      isConnecting: false,
+      liveKitToken: null,
+      liveKitUrl: null,
+      errorMessage: null,
+    });
     playChime('soft-bell');
 
     if (isFirebaseConfigured() && current) {

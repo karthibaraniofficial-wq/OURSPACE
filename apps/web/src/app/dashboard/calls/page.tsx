@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Phone,
   Video,
@@ -11,10 +11,13 @@ import {
   Sparkles,
   Heart,
   Radio,
+  PhoneCall,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useCallStore } from '@/store/useCallStore';
 import { Button } from '@/components/ui/Button';
+import { isFirebaseConfigured, getFirebaseFirestore } from '@/lib/firebase/firebase';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 interface CallRecord {
   id: string;
@@ -25,72 +28,91 @@ interface CallRecord {
   duration: string;
 }
 
-const MOCK_CALL_HISTORY: CallRecord[] = [
-  {
-    id: 'ch-1',
-    type: 'video',
-    direction: 'outgoing',
-    partnerName: 'Jordan Taylor',
-    timestamp: 'Today, 10:15 AM',
-    duration: '24m 12s',
-  },
-  {
-    id: 'ch-2',
-    type: 'audio',
-    direction: 'incoming',
-    partnerName: 'Jordan Taylor',
-    timestamp: 'Yesterday, 8:40 PM',
-    duration: '45m 08s',
-  },
-  {
-    id: 'ch-3',
-    type: 'video',
-    direction: 'missed',
-    partnerName: 'Jordan Taylor',
-    timestamp: 'Oct 28, 6:20 PM',
-    duration: 'Missed',
-  },
-  {
-    id: 'ch-4',
-    type: 'audio',
-    direction: 'outgoing',
-    partnerName: 'Jordan Taylor',
-    timestamp: 'Oct 25, 11:30 AM',
-    duration: '18m 50s',
-  },
-];
-
 export default function CallsPage() {
   const { user, space, partner } = useAuthStore();
-  const { initiateCall, receiveCall } = useCallStore();
+  const { initiateCall } = useCallStore();
+  const [callHistory, setCallHistory] = useState<CallRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Subscribe to real Firestore call history
+  useEffect(() => {
+    if (!space?.id || !user?.id) {
+      setIsLoading(false);
+      return;
+    }
+
+    if (!isFirebaseConfigured()) {
+      setIsLoading(false);
+      return;
+    }
+
+    const db = getFirebaseFirestore();
+    const callsRef = collection(db, `privateSpaces/${space.id}/callSessions`);
+    const q = query(callsRef, orderBy('startedAt', 'desc'), limit(30));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const records: CallRecord[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          const isCaller = data.callerId === user.id;
+          const isMissed = data.status === 'declined' || (!data.answeredAt && data.status === 'ended');
+
+          const direction: 'incoming' | 'outgoing' | 'missed' = isMissed
+            ? 'missed'
+            : isCaller
+            ? 'outgoing'
+            : 'incoming';
+
+          const startDate = data.startedAt?.toDate ? data.startedAt.toDate() : new Date();
+          const timestamp = startDate.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+
+          const durationSeconds = data.durationSeconds || 0;
+          const mins = Math.floor(durationSeconds / 60);
+          const secs = durationSeconds % 60;
+          const durationStr = isMissed
+            ? 'Missed'
+            : durationSeconds > 0
+            ? `${mins}m ${secs}s`
+            : 'Brief call';
+
+          return {
+            id: d.id,
+            type: (data.callType as 'audio' | 'video') || 'audio',
+            direction,
+            partnerName: partner?.display_name || 'My Partner',
+            timestamp,
+            duration: durationStr,
+          };
+        });
+
+        setCallHistory(records);
+        setIsLoading(false);
+      },
+      () => {
+        setIsLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [space?.id, user?.id, partner?.display_name]);
 
   const handleStartCall = (type: 'audio' | 'video') => {
-    if (!space || !user || !partner) return;
+    if (!space || !user) return;
+    if (!partner) {
+      alert('Your partner has not paired yet. Share your invitation code from Settings to connect first ❤️');
+      return;
+    }
     initiateCall({
       spaceId: space.id,
       caller: user,
       receiver: partner,
       type,
-    });
-  };
-
-  const handleSimulateIncoming = (type: 'audio' | 'video') => {
-    if (!space || !user || !partner) return;
-    receiveCall({
-      id: 'call-sim-' + Date.now(),
-      space_id: space.id,
-      caller_id: partner.id,
-      receiver_id: user.id,
-      call_type: type,
-      status: 'ringing',
-      room_name: `room-${space.id}`,
-      started_at: new Date().toISOString(),
-      answered_at: null,
-      ended_at: null,
-      duration_seconds: 0,
-      created_at: new Date().toISOString(),
-      caller: partner,
-      receiver: user,
     });
   };
 
@@ -101,13 +123,13 @@ export default function CallsPage() {
         <div>
           <span className="text-xs font-bold text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
             <Radio className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
-            <span>Real-Time WebRTC Media</span>
+            <span>Encrypted WebRTC Peer Media</span>
           </span>
           <h2 className="text-2xl font-extrabold text-stone-900 dark:text-zinc-100 mt-1">
             Private Audio & Video Calls
           </h2>
           <p className="text-xs text-stone-500 dark:text-zinc-400 mt-1 max-w-md">
-            Crystal-clear encrypted peer media powered by WebRTC. Direct low-latency connection with your partner.
+            Direct low-latency communication with {partner?.display_name || 'your partner'}. Fully private, end-to-end encrypted media.
           </p>
         </div>
 
@@ -135,99 +157,107 @@ export default function CallsPage() {
         )}
       </div>
 
-      {/* Simulator Quick Testing Box for Judges/Testers */}
-      <div className="p-4 rounded-2xl glass-card border border-purple-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-purple-600" />
-          <span className="font-semibold text-stone-700 dark:text-zinc-200">
-            Tester Simulation Mode: Test receiving an incoming call from partner
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleSimulateIncoming('audio')}
-            className="px-3 py-1.5 rounded-xl bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-bold hover:bg-purple-200 transition-colors"
-          >
-            Simulate Incoming Audio
-          </button>
-          <button
-            onClick={() => handleSimulateIncoming('video')}
-            className="px-3 py-1.5 rounded-xl bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold hover:bg-rose-200 transition-colors"
-          >
-            Simulate Incoming Video
-          </button>
-        </div>
-      </div>
-
       {/* Call History Card */}
       <div className="rounded-3xl glass-panel p-6 border border-rose-200/50 flex flex-col gap-4">
         <h3 className="text-base font-bold text-stone-900 dark:text-zinc-100">
           Recent Call History
         </h3>
 
-        <div className="flex flex-col gap-2.5">
-          {MOCK_CALL_HISTORY.map((call) => (
-            <div
-              key={call.id}
-              className="flex items-center justify-between p-4 rounded-2xl glass-card hover:bg-rose-50/40 transition-colors"
-            >
-              <div className="flex items-center gap-3.5">
-                {/* Icon based on direction */}
-                <div
-                  className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
-                    call.direction === 'missed'
-                      ? 'bg-red-100 text-red-600'
-                      : call.type === 'video'
-                      ? 'bg-purple-100 text-purple-600'
-                      : 'bg-emerald-100 text-emerald-600'
-                  }`}
+        {isLoading ? (
+          <div className="py-12 flex flex-col items-center justify-center gap-2 text-stone-400 text-xs">
+            <div className="w-6 h-6 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+            <span>Loading call records...</span>
+          </div>
+        ) : callHistory.length === 0 ? (
+          <div className="py-12 px-4 rounded-2xl text-center flex flex-col items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/30 text-rose-500 flex items-center justify-center">
+              <PhoneCall className="w-7 h-7" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-stone-800 dark:text-zinc-200">
+                No calls recorded yet
+              </h4>
+              <p className="text-xs text-stone-400 max-w-sm mt-0.5">
+                Every audio and video conversation you share with {partner?.display_name || 'your partner'} will appear here.
+              </p>
+            </div>
+            {partner && (
+              <div className="flex items-center gap-3 mt-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleStartCall('audio')}
+                  className="gap-1.5 text-xs"
                 >
-                  {call.direction === 'missed' ? (
-                    <PhoneMissed className="w-5 h-5" />
-                  ) : call.type === 'video' ? (
-                    <Video className="w-5 h-5" />
-                  ) : (
-                    <Phone className="w-5 h-5" />
-                  )}
-                </div>
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>Call {partner.display_name}</span>
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {callHistory.map((call) => (
+              <div
+                key={call.id}
+                className="flex items-center justify-between p-4 rounded-2xl glass-card hover:bg-rose-50/40 transition-colors"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
+                      call.direction === 'missed'
+                        ? 'bg-red-100 text-red-600'
+                        : call.type === 'video'
+                        ? 'bg-purple-100 text-purple-600'
+                        : 'bg-emerald-100 text-emerald-600'
+                    }`}
+                  >
+                    {call.direction === 'missed' ? (
+                      <PhoneMissed className="w-5 h-5" />
+                    ) : call.type === 'video' ? (
+                      <Video className="w-5 h-5" />
+                    ) : (
+                      <Phone className="w-5 h-5" />
+                    )}
+                  </div>
 
-                <div>
-                  <h4 className="text-sm font-bold text-stone-800 dark:text-zinc-100">
-                    {call.partnerName}
-                  </h4>
-                  <div className="flex items-center gap-2 text-xs text-stone-400 mt-0.5">
-                    <span className="capitalize">{call.direction}</span>
-                    <span>•</span>
-                    <span>{call.timestamp}</span>
+                  <div>
+                    <h4 className="text-sm font-bold text-stone-800 dark:text-zinc-100">
+                      {call.partnerName}
+                    </h4>
+                    <div className="flex items-center gap-2 text-xs text-stone-400 mt-0.5">
+                      <span className="capitalize">{call.direction}</span>
+                      <span>•</span>
+                      <span>{call.timestamp}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Duration and Call Back */}
-              <div className="flex items-center gap-4">
-                <span
-                  className={`text-xs font-semibold ${
-                    call.direction === 'missed' ? 'text-red-500' : 'text-stone-500'
-                  }`}
-                >
-                  {call.duration}
-                </span>
+                <div className="flex items-center gap-4">
+                  <span
+                    className={`text-xs font-semibold ${
+                      call.direction === 'missed' ? 'text-red-500' : 'text-stone-500'
+                    }`}
+                  >
+                    {call.duration}
+                  </span>
 
-                <button
-                  onClick={() => handleStartCall(call.type)}
-                  className="p-2.5 rounded-xl hover:bg-rose-100 text-rose-500 transition-colors"
-                  title="Call back"
-                >
-                  {call.type === 'video' ? (
-                    <Video className="w-4 h-4" />
-                  ) : (
-                    <Phone className="w-4 h-4" />
-                  )}
-                </button>
+                  <button
+                    onClick={() => handleStartCall(call.type)}
+                    className="p-2.5 rounded-xl hover:bg-rose-100 text-rose-500 transition-colors"
+                    title="Call back"
+                  >
+                    {call.type === 'video' ? (
+                      <Video className="w-4 h-4" />
+                    ) : (
+                      <Phone className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

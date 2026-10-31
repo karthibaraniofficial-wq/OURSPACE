@@ -28,7 +28,7 @@ service firebase.storage {
     }
 
     // Space-isolated media directory
-    match /spaces/{spaceId}/{category}/{fileName} {
+    match /spaces/{spaceId}/{category}/{allFiles=**} {
       allow read: if isMemberOfSpace(spaceId);
       allow create: if isMemberOfSpace(spaceId) && isValidFileSize() && isValidMimeType();
       allow delete: if isMemberOfSpace(spaceId);

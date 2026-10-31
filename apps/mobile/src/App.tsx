@@ -212,7 +212,7 @@ export default function App() {
         {activeTab === 'calls' && (
           <View style={styles.callsContainer}>
             <View style={styles.callHero}>
-              <Text style={styles.callPartnerName}>Jordan Taylor</Text>
+              <Text style={styles.callPartnerName}>{DEMO_USER_2.display_name}</Text>
               <Text style={styles.callStatusText}>WebRTC Audio & Video</Text>
               <View style={styles.callButtonsRow}>
                 <TouchableOpacity style={styles.audioCallBtn}>

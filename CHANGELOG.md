@@ -4,8 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.1.0-connectivity] - 2026-10-31
-### Added
+## [2.3.1] - 2026-10-31
+### Fixed
+- **LiveKit Audio Calling**:
+  - Replaced simulated acceptance with genuine LiveKit Room connection and remote audio track attachment.
+  - Bound Mute control directly to hardware audio track disablement and LiveKit participant muting.
+  - Added browser autoplay policy handling with interactive "Tap to Enable Audio" action.
+  - Removed artificial `setTimeout` auto-answer simulation from `useCallStore.ts`.
+- **LiveKit Video Calling**:
+  - Completely purged static Unsplash stock demonstration photos from `ActiveCallModal.tsx`.
+  - Implemented real hardware camera capture via `getUserMedia({ video: true })` and bound mirrored local preview to picture-in-picture.
+  - Subscribed to remote camera tracks via LiveKit SFU, streaming live partner camera feed into main stage.
+  - Implemented camera toggle controls that dynamically enable/disable tracks and fall back to avatar initials when disabled.
+  - Ensured all media hardware tracks (camera and microphone) are stopped upon call termination.
+- **Firebase Image Sharing**:
+  - Replaced Base64 Data URL embedding in Firestore with resumable chunked binary uploads to Firebase Cloud Storage.
+  - Configured safe storage path: `spaces/{spaceId}/images/{senderId}/{timestamp}_{filename}`.
+  - Updated `storage.rules` to recursively permit nested paths under spaces.
+  - Added dedicated image picker input and "Share Photo" button in `MessageInput.tsx`.
+  - Added real-time progress bar (`0%` - `100%`) during upload and error retry handling.
+  - Upgraded `MessageBubble.tsx` to render genuine photographs with rounded corners, natural aspect ratio, and full-screen lightbox modal (`MediaViewerModal`) with download support.
+  - Connected `CallsPage.tsx` to real Firestore `callSessions` history and eliminated Jordan Taylor mock records.
+- **Automated Verification**:
+  - Added `tests/call_and_media.test.mjs` verifying calling state machine, media track lifecycle, and image upload invariants (54/54 tests passing).
+
+---
+
+
 - **Public Edge Hosting & Cloud Deployment**:
   - `apps/web/vercel.json` with strict production security headers (HSTS, CSP, X-Frame-Options, Permissions-Policy for WebRTC camera/microphone).
   - `firebase.json` hosting target for Firebase Hosting alternative with public rewrite rules.

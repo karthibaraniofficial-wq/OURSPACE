@@ -19,16 +19,18 @@ export async function uploadMediaToFirebaseStorage(
   spaceId: string,
   category: 'image' | 'video' | 'document' | 'audio',
   file: File,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  senderId?: string
 ): Promise<UploadResult> {
-  // Validate file size (50MB)
+  // Validate file size (50MB limit)
   if (file.size > 50 * 1024 * 1024) {
     throw new Error('File size exceeds the 50MB limit.');
   }
 
   const storage = getFirebaseStorageInstance();
   const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-  const storagePath = `spaces/${spaceId}/${category}/${Date.now()}_${safeName}`;
+  const userSegment = senderId ? `${senderId}/` : '';
+  const storagePath = `spaces/${spaceId}/${category}/${userSegment}${Date.now()}_${safeName}`;
   const fileRef = ref(storage, storagePath);
 
   const uploadTask = uploadBytesResumable(fileRef, file, {

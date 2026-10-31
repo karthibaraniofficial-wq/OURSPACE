@@ -15,6 +15,7 @@ import {
   MoreHorizontal,
   Play,
   Pause,
+  Image as ImageIcon,
 } from 'lucide-react';
 import type { Message, UUID } from '@ourspace/types';
 import { formatChatTimestamp, formatBytes } from '@ourspace/shared';
@@ -37,24 +38,58 @@ function ImageAttachment({
   onOpenMedia?: (url: string, type: string) => void;
 }) {
   const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const src = att.signed_url || att.file_path;
 
   if (hasError) {
     return (
-      <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-black/10 dark:bg-white/10 text-xs">
-        <FileText className="w-4 h-4 text-rose-500 shrink-0" />
-        <span className="truncate font-semibold">{att.file_name}</span>
+      <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-black/5 dark:bg-white/5 border border-dashed border-rose-300 text-center gap-2">
+        <ImageIcon className="w-8 h-8 text-rose-400" />
+        <span className="text-xs font-semibold text-stone-600 dark:text-zinc-300">
+          {att.file_name || 'Photograph'}
+        </span>
+        <button
+          onClick={() => setHasError(false)}
+          className="text-[11px] font-bold text-rose-500 hover:text-rose-600 underline"
+        >
+          Tap to retry loading
+        </button>
       </div>
     );
   }
 
   return (
-    <img
-      src={att.signed_url || att.file_path}
-      alt={att.file_name}
-      onError={() => setHasError(true)}
-      onClick={() => onOpenMedia?.(att.signed_url || att.file_path, 'image')}
-      className="max-h-72 w-full object-cover rounded-2xl cursor-pointer hover:opacity-95 transition-opacity"
-    />
+    <div className="relative group/photo rounded-2xl sm:rounded-3xl overflow-hidden shadow-md max-w-full my-1">
+      {isLoading && (
+        <div className="w-64 h-48 rounded-2xl bg-rose-100/40 dark:bg-zinc-800 animate-pulse flex items-center justify-center text-rose-300">
+          <ImageIcon className="w-8 h-8 animate-bounce" />
+        </div>
+      )}
+      <img
+        src={src}
+        alt={att.file_name || 'Photograph'}
+        onLoad={() => setIsLoading(false)}
+        onError={() => {
+          setIsLoading(false);
+          setHasError(true);
+        }}
+        onClick={() => onOpenMedia?.(src, 'image')}
+        className={cn(
+          'max-h-80 sm:max-h-96 w-auto max-w-full rounded-2xl sm:rounded-3xl object-cover cursor-pointer transition-all duration-300 group-hover/photo:scale-[1.01]',
+          isLoading && 'hidden'
+        )}
+      />
+      {!isLoading && (
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-end justify-between p-3 pointer-events-none">
+          <span className="text-[11px] font-semibold text-white/90 truncate max-w-[70%]">
+            {att.file_name}
+          </span>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-md text-white">
+            Tap to view
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 

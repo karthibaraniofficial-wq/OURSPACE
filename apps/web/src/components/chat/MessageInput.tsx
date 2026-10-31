@@ -11,17 +11,18 @@ import {
   X,
   Sparkles,
   Mic,
-  MicOff,
   Square,
   Play,
   Pause,
   Trash2,
-  Languages,
-  Check,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { useChatStore } from '@/store/useChatStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import type { MessageAttachment } from '@ourspace/types';
+import { uploadMediaToFirebaseStorage } from '@/lib/firebase/storage';
+import { formatBytes } from '@ourspace/shared';
 import { cn } from '@/lib/utils';
 
 interface MessageInputProps {
@@ -29,10 +30,23 @@ interface MessageInputProps {
   onOpenEmoji: () => void;
 }
 
+interface StagedMedia {
+  file: File;
+  previewUrl: string;
+  category: 'image' | 'video' | 'document';
+  width?: number;
+  height?: number;
+}
+
 export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   const [text, setText] = useState('');
-  const [selectedAttachment, setSelectedAttachment] = useState<Partial<MessageAttachment> | null>(null);
+  const [stagedMedia, setStagedMedia] = useState<StagedMedia | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const { user, space } = useAuthStore();
   const { sendMessage, activeReply, setActiveReply, setTyping } = useChatStore();
@@ -44,6 +58,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   // ========================================================================
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [recordedAudioBlob, setRecordedAudioBlob] = useState<Blob | null>(null);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -64,8 +79,9 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (audioPreviewRef.current) audioPreviewRef.current.pause();
+      if (stagedMedia?.previewUrl) URL.revokeObjectURL(stagedMedia.previewUrl);
     };
-  }, []);
+  }, [stagedMedia]);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setText(e.target.value);
@@ -79,28 +95,81 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     }
   };
 
+  // Handle Photo selection (dedicated image picker)
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError('Image size exceeds the 50MB platform limit.');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please select a valid photograph (JPG, PNG, WebP, GIF).');
+      return;
+    }
+
+    if (stagedMedia?.previewUrl) {
+      URL.revokeObjectURL(stagedMedia.previewUrl);
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    const staged: StagedMedia = {
+      file,
+      previewUrl,
+      category: 'image',
+    };
+
+    // Calculate image dimensions
+    const img = new Image();
+    img.onload = () => {
+      staged.width = img.naturalWidth;
+      staged.height = img.naturalHeight;
+      setStagedMedia({ ...staged });
+    };
+    img.src = previewUrl;
+
+    setStagedMedia(staged);
+    setUploadError(null);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  };
+
+  // Handle generic file / document selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    let category: 'image' | 'video' | 'document' | 'audio' = 'document';
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError('File size exceeds the 50MB limit.');
+      return;
+    }
+
+    let category: 'image' | 'video' | 'document' = 'document';
     if (file.type.startsWith('image/')) category = 'image';
     else if (file.type.startsWith('video/')) category = 'video';
-    else if (file.type.startsWith('audio/')) category = 'audio';
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setSelectedAttachment({
-        file_name: file.name,
-        file_size: file.size,
-        file_type: file.type,
-        media_category: category,
-        signed_url: dataUrl,
-        file_path: 'inline/' + file.name,
-      });
-    };
-    reader.readAsDataURL(file);
+    if (stagedMedia?.previewUrl) {
+      URL.revokeObjectURL(stagedMedia.previewUrl);
+    }
+
+    const previewUrl = category === 'image' || category === 'video' ? URL.createObjectURL(file) : '';
+    setStagedMedia({
+      file,
+      previewUrl,
+      category,
+    });
+    setUploadError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeStagedMedia = () => {
+    if (stagedMedia?.previewUrl) {
+      URL.revokeObjectURL(stagedMedia.previewUrl);
+    }
+    setStagedMedia(null);
+    setUploadProgress(0);
+    setUploadError(null);
   };
 
   // ========================================================================
@@ -127,19 +196,18 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
 
       recorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setRecordedAudioUrl(reader.result as string);
-        };
-        reader.readAsDataURL(audioBlob);
+        setRecordedAudioBlob(audioBlob);
+        const url = URL.createObjectURL(audioBlob);
+        setRecordedAudioUrl(url);
 
-        // Stop all audio tracks
+        // Release hardware audio tracks
         stream.getTracks().forEach((track) => track.stop());
       };
 
       recorder.start(100);
       setIsRecording(true);
       setRecordingDuration(0);
+      setRecordedAudioBlob(null);
       setRecordedAudioUrl(null);
 
       recordingTimerRef.current = setInterval(() => {
@@ -163,6 +231,8 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
       mediaRecorderRef.current.stop();
     }
     setIsRecording(false);
+    if (recordedAudioUrl) URL.revokeObjectURL(recordedAudioUrl);
+    setRecordedAudioBlob(null);
     setRecordedAudioUrl(null);
     setRecordingDuration(0);
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -187,27 +257,49 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   };
 
   const sendVoiceNote = async () => {
-    if (!space || !user || !recordedAudioUrl) return;
+    if (!space || !user || !recordedAudioBlob) return;
 
-    await sendMessage({
-      spaceId: space.id,
-      senderId: user.id,
-      content: text.trim() || null,
-      type: 'audio',
-      replyToId: activeReply?.id || null,
-      attachment: {
-        file_name: `Voice_Note_${new Date().toLocaleTimeString().replace(/:/g, '-')}.webm`,
-        file_size: audioChunksRef.current.reduce((acc, c) => acc + c.size, 0),
-        file_type: 'audio/webm',
-        media_category: 'audio',
-        duration_seconds: recordingDuration || 1,
-        signed_url: recordedAudioUrl,
-        file_path: 'inline/voice_note.webm',
-      },
-    });
+    try {
+      setIsUploading(true);
+      const audioFileName = `Voice_Note_${Date.now()}.webm`;
+      const audioFile = new File([recordedAudioBlob], audioFileName, {
+        type: recordedAudioBlob.type || 'audio/webm',
+      });
 
-    cancelVoiceRecording();
-    setText('');
+      // Upload audio to Firebase Storage
+      const uploadRes = await uploadMediaToFirebaseStorage(
+        space.id,
+        'audio',
+        audioFile,
+        undefined,
+        user.id
+      );
+
+      await sendMessage({
+        spaceId: space.id,
+        senderId: user.id,
+        content: text.trim() || null,
+        type: 'audio',
+        replyToId: activeReply?.id || null,
+        attachment: {
+          file_name: uploadRes.fileName,
+          file_size: uploadRes.fileSize,
+          file_type: uploadRes.fileType,
+          media_category: 'audio',
+          duration_seconds: recordingDuration || 1,
+          signed_url: uploadRes.downloadUrl,
+          file_path: uploadRes.storagePath,
+        },
+      });
+
+      cancelVoiceRecording();
+      setText('');
+      setIsUploading(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to send voice note';
+      setUploadError(msg);
+      setIsUploading(false);
+    }
   };
 
   // ========================================================================
@@ -269,30 +361,67 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   };
 
   const handleSend = async () => {
-    if (!space || !user) return;
-    if (!text.trim() && !selectedAttachment) return;
+    if (!space || !user || isUploading) return;
+    if (!text.trim() && !stagedMedia) return;
 
-    await sendMessage({
-      spaceId: space.id,
-      senderId: user.id,
-      content: text.trim() || null,
-      type: selectedAttachment
-        ? selectedAttachment.media_category === 'image'
-          ? 'image'
-          : selectedAttachment.media_category === 'video'
-          ? 'video'
-          : selectedAttachment.media_category === 'audio'
-          ? 'audio'
-          : 'document'
-        : 'text',
-      replyToId: activeReply?.id || null,
-      attachment: selectedAttachment || undefined,
-    });
+    try {
+      if (stagedMedia) {
+        setIsUploading(true);
+        setUploadProgress(0);
+        setUploadError(null);
 
-    setText('');
-    setSelectedAttachment(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    setTyping(space.id, user.id, false);
+        // Upload actual media bytes to Firebase Cloud Storage with progress updates
+        const uploadResult = await uploadMediaToFirebaseStorage(
+          space.id,
+          stagedMedia.category,
+          stagedMedia.file,
+          (percent) => setUploadProgress(percent),
+          user.id
+        );
+
+        // Write message to Firestore storing only metadata (no large base64 or blob URLs)
+        await sendMessage({
+          spaceId: space.id,
+          senderId: user.id,
+          content: text.trim() || null,
+          type: stagedMedia.category,
+          replyToId: activeReply?.id || null,
+          attachment: {
+            file_name: uploadResult.fileName,
+            file_size: uploadResult.fileSize,
+            file_type: uploadResult.fileType,
+            media_category: stagedMedia.category,
+            signed_url: uploadResult.downloadUrl,
+            file_path: uploadResult.storagePath,
+            width: stagedMedia.width || null,
+            height: stagedMedia.height || null,
+          },
+        });
+
+        // Clean up object URL
+        if (stagedMedia.previewUrl) URL.revokeObjectURL(stagedMedia.previewUrl);
+        setStagedMedia(null);
+        setIsUploading(false);
+        setUploadProgress(0);
+      } else {
+        // Plain text message
+        await sendMessage({
+          spaceId: space.id,
+          senderId: user.id,
+          content: text.trim(),
+          type: 'text',
+          replyToId: activeReply?.id || null,
+        });
+      }
+
+      setText('');
+      setTyping(space.id, user.id, false);
+    } catch (err: unknown) {
+      console.error('[Send Message Error]', err);
+      const msg = err instanceof Error ? err.message : 'Upload failed. Please check network and retry.';
+      setUploadError(msg);
+      setIsUploading(false);
+    }
   };
 
   const formatTimer = (seconds: number) => {
@@ -302,14 +431,35 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   };
 
   return (
-    <div className="flex flex-col gap-2 p-4 glass-panel border-t border-rose-200/50 dark:border-purple-900/30">
-      {/* Speech Error Banner */}
-      {speechError && (
-        <div className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 text-amber-700 text-xs flex items-center justify-between">
-          <span>{speechError}</span>
-          <button onClick={() => setSpeechError(null)} className="text-amber-500 hover:text-amber-700">
-            <X className="w-3.5 h-3.5" />
-          </button>
+    <div className="flex flex-col gap-2 p-3 sm:p-4 glass-panel border-t border-rose-200/50 dark:border-purple-900/30">
+      {/* Speech / Upload Error Banner */}
+      {(speechError || uploadError) && (
+        <div className="px-3.5 py-2 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between gap-2 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>{speechError || uploadError}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {uploadError && stagedMedia && (
+              <button
+                onClick={handleSend}
+                disabled={isUploading}
+                className="px-2.5 py-1 rounded-xl bg-amber-200 dark:bg-amber-900/60 font-bold hover:bg-amber-300 text-[11px] flex items-center gap-1 transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Retry</span>
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setSpeechError(null);
+                setUploadError(null);
+              }}
+              className="p-1 rounded-full text-amber-500 hover:text-amber-700"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -331,40 +481,66 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
         </div>
       )}
 
-      {/* Attachment Staging Card */}
-      {selectedAttachment && (
-        <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-white/90 dark:bg-zinc-800 border border-rose-300 shadow-md">
-          <div className="flex items-center gap-3">
-            {selectedAttachment.media_category === 'image' && (
-              <img
-                src={selectedAttachment.signed_url}
-                alt="Preview"
-                className="w-10 h-10 rounded-xl object-cover"
-              />
-            )}
-            {selectedAttachment.media_category === 'video' && (
-              <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
-                <Film className="w-5 h-5" />
+      {/* Dedicated Photograph & Media Preview Staging Tray */}
+      {stagedMedia && (
+        <div className="flex items-center justify-between p-3 rounded-2xl bg-white/95 dark:bg-zinc-900 border border-rose-300 shadow-md">
+          <div className="flex items-center gap-3 min-w-0">
+            {stagedMedia.category === 'image' && (
+              <div className="relative w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-rose-200 shadow-sm">
+                <img
+                  src={stagedMedia.previewUrl}
+                  alt="Staged photo"
+                  className="w-full h-full object-cover"
+                />
               </div>
             )}
-            {selectedAttachment.media_category === 'document' && (
-              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
-                <FileText className="w-5 h-5" />
+            {stagedMedia.category === 'video' && (
+              <div className="w-12 h-12 rounded-2xl bg-purple-100 dark:bg-purple-950/40 text-purple-600 flex items-center justify-center shrink-0">
+                <Film className="w-6 h-6" />
               </div>
             )}
-            <div>
-              <p className="text-xs font-bold text-stone-800 dark:text-zinc-100 truncate max-w-xs">
-                {selectedAttachment.file_name}
+            {stagedMedia.category === 'document' && (
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center shrink-0">
+                <FileText className="w-6 h-6" />
+              </div>
+            )}
+
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-stone-900 dark:text-zinc-100 truncate max-w-xs">
+                {stagedMedia.file.name}
               </p>
-              <p className="text-[10px] text-stone-400">Ready to send</p>
+              <div className="flex items-center gap-2 text-[11px] text-stone-500 dark:text-zinc-400 mt-0.5">
+                <span>{formatBytes(stagedMedia.file.size)}</span>
+                <span>•</span>
+                <span className="capitalize text-rose-500 font-semibold">{stagedMedia.category}</span>
+              </div>
+
+              {/* Upload Progress Bar */}
+              {isUploading && (
+                <div className="w-48 mt-1.5 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 rounded-full bg-rose-100 dark:bg-zinc-800 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-rose-500 to-pink-500 transition-all duration-200"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-bold text-rose-600 font-mono">
+                    {uploadProgress}%
+                  </span>
+                </div>
+              )}
             </div>
           </div>
-          <button
-            onClick={() => setSelectedAttachment(null)}
-            className="p-1.5 rounded-full hover:bg-stone-100 text-stone-400 hover:text-red-500"
-          >
-            <X className="w-4 h-4" />
-          </button>
+
+          {!isUploading && (
+            <button
+              onClick={removeStagedMedia}
+              className="p-1.5 rounded-full hover:bg-stone-100 dark:hover:bg-zinc-800 text-stone-400 hover:text-red-500 transition-colors"
+              title="Cancel Attachment"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       )}
 
@@ -428,39 +604,66 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             ) : (
               <button
                 onClick={sendVoiceNote}
+                disabled={isUploading}
                 className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-rose-500/25 hover:scale-105 active:scale-95 transition-all"
               >
-                <Send className="w-3.5 h-3.5" />
-                <span>Send Voice Note</span>
+                {isUploading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                <span>{isUploading ? 'Sending...' : 'Send Voice Note'}</span>
               </button>
             )}
           </div>
         </div>
       ) : (
         /* Normal Typing Input Row */
-        <div className="flex items-center gap-2">
-          {/* Hidden native file input */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Dedicated Photo Picker Input */}
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="hidden"
+            onChange={handleImageSelect}
+          />
+
+          {/* Generic Document File Input */}
           <input
             ref={fileInputRef}
             type="file"
+            accept=".pdf,.doc,.docx,.txt,.zip,video/*"
             className="hidden"
             onChange={handleFileSelect}
           />
 
-          {/* Attachment Button */}
+          {/* Dedicated Share Photo Button */}
           <button
+            type="button"
+            onClick={() => imageInputRef.current?.click()}
+            title="Share Photograph"
+            className="p-2 sm:p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-rose-500 transition-colors"
+          >
+            <ImageIcon className="w-5 h-5" />
+          </button>
+
+          {/* Attachment / Document Button */}
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            title="Share Photo, Video, or Document"
-            className="p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-300 transition-colors"
+            title="Attach Document or Video"
+            className="p-2 sm:p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-300 transition-colors"
           >
             <Paperclip className="w-5 h-5" />
           </button>
 
           {/* GIPHY Search Button */}
           <button
+            type="button"
             onClick={onOpenGiphy}
             title="Search GIFs"
-            className="p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-300 font-bold text-xs transition-colors flex items-center gap-1"
+            className="p-2 sm:p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-300 font-bold text-xs transition-colors flex items-center gap-1"
           >
             <Sparkles className="w-4 h-4 text-amber-500" />
             <span className="hidden sm:inline">GIF</span>
@@ -469,10 +672,11 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           {/* Voice Typing (Speech-to-Text) Button with Language Toggle */}
           <div className="flex items-center">
             <button
+              type="button"
               onClick={toggleSpeechRecognition}
               title={isSpeechRecognizing ? 'Stop Voice Typing' : `Voice-to-Text Typing (${speechLanguage === 'en-US' ? 'English' : 'Tamil'})`}
               className={cn(
-                'p-2.5 rounded-2xl transition-all flex items-center gap-1',
+                'p-2 sm:p-2.5 rounded-2xl transition-all flex items-center gap-1',
                 isSpeechRecognizing
                   ? 'bg-rose-500 text-white shadow-md animate-pulse'
                   : 'hover:bg-rose-50 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-300'
@@ -481,21 +685,23 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
               <Mic className="w-4 h-4" />
             </button>
             <button
+              type="button"
               onClick={() =>
                 setSpeechLanguage((prev) => (prev === 'en-US' ? 'ta-IN' : 'en-US'))
               }
               title="Toggle Voice Typing Language (English / Tamil)"
-              className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-rose-100 text-rose-700 hover:bg-rose-200 ml-0.5"
+              className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 hover:bg-rose-200 ml-0.5"
             >
               {speechLanguage === 'en-US' ? 'EN' : 'TA'}
             </button>
           </div>
 
           {/* Text Input */}
-          <div className="flex-1 relative flex items-center">
+          <div className="flex-1 relative flex items-center min-w-0">
             <input
               type="text"
               value={text}
+              disabled={isUploading}
               onChange={handleTextChange}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSend();
@@ -509,6 +715,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
 
             {/* Quick Emoji Picker Button */}
             <button
+              type="button"
               onClick={onOpenEmoji}
               title="Emoji"
               className="absolute right-3 text-stone-400 hover:text-rose-500 transition-colors"
@@ -518,18 +725,25 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           </div>
 
           {/* Voice Note Record Trigger or Send Button */}
-          {text.trim() || selectedAttachment ? (
+          {text.trim() || stagedMedia ? (
             <button
+              type="button"
               onClick={handleSend}
-              className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-500 hover:brightness-105 active:scale-95 text-white shadow-md shadow-rose-500/25 flex items-center justify-center transition-all"
+              disabled={isUploading}
+              className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-500 hover:brightness-105 active:scale-95 text-white shadow-md shadow-rose-500/25 flex items-center justify-center transition-all shrink-0"
               title="Send Message"
             >
-              <Send className="w-4 h-4" />
+              {isUploading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
             </button>
           ) : (
             <button
+              type="button"
               onClick={startVoiceRecording}
-              className="w-11 h-11 rounded-2xl bg-rose-100 dark:bg-rose-950/40 text-rose-600 hover:bg-rose-200 dark:hover:bg-rose-900/40 hover:scale-105 active:scale-95 flex items-center justify-center transition-all border border-rose-200/60"
+              className="w-11 h-11 rounded-2xl bg-rose-100 dark:bg-rose-950/40 text-rose-600 hover:bg-rose-200 dark:hover:bg-rose-900/40 hover:scale-105 active:scale-95 flex items-center justify-center transition-all border border-rose-200/60 shrink-0"
               title="Record Voice Note"
             >
               <Mic className="w-5 h-5" />
