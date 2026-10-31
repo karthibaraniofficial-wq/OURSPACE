@@ -43,19 +43,20 @@ service cloud.firestore {
       allow update: if isAuthenticated() && (
         // Creator revoking their own invitation
         (resource.data.createdBy == request.auth.uid && request.resource.data.status == 'revoked') ||
-        // Unpaired partner accepting pending and unexpired invite
+        // Unpaired partner accepting pending invite
         (resource.data.status == 'pending' &&
          request.resource.data.status == 'accepted' &&
-         request.time < resource.data.expiresAt &&
          request.resource.data.acceptedBy == request.auth.uid)
       );
     }
 
     // 3. Private Spaces (Strict 2-member limit)
     match /privateSpaces/{spaceId} {
-      allow read: if isMemberOfSpace(spaceId);
+      // Allow read if already member OR if authenticated user inspecting capacity to join
+      allow read: if isMemberOfSpace(spaceId) || (isAuthenticated() && resource.data.memberCount < 2);
       allow create: if isAuthenticated() && request.resource.data.createdBy == request.auth.uid && request.resource.data.memberCount == 1;
-      allow update: if isMemberOfSpace(spaceId) && request.resource.data.memberCount <= 2;
+      // Allow update if member OR if authenticated partner incrementing memberCount from 1 to 2 upon joining
+      allow update: if (isMemberOfSpace(spaceId) || (isAuthenticated() && resource.data.memberCount == 1)) && request.resource.data.memberCount <= 2;
       allow delete: if isAuthenticated() && resource.data.createdBy == request.auth.uid;
 
       // Space Members (Hard boundary ceiling)

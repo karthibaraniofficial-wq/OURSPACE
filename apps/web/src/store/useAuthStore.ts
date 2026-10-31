@@ -11,7 +11,7 @@ import {
   createPrivateSpaceInFirestore,
   joinPrivateSpaceInFirestore,
 } from '@/lib/firebase/firestore';
-import { isFirebaseConfigured, getFirebaseFirestore } from '@/lib/firebase/firebase';
+import { isFirebaseConfigured, getFirebaseFirestore, getFirebaseAuth } from '@/lib/firebase/firebase';
 import { doc, getDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
 
 interface AuthState {
@@ -241,7 +241,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const user = get().user;
     if (!user) return { success: false, error: 'User not authenticated' };
 
-    if (isFirebaseConfigured()) {
+    const auth = isFirebaseConfigured() ? getFirebaseAuth() : null;
+    if (auth?.currentUser) {
       const res = await createPrivateSpaceInFirestore(user, name, startDate);
       if (res.success && res.spaceId) {
         await get().initializeSession();
@@ -283,7 +284,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const user = get().user;
     if (!user) return { success: false, error: 'User not authenticated' };
 
-    if (isFirebaseConfigured()) {
+    const auth = isFirebaseConfigured() ? getFirebaseAuth() : null;
+    if (auth?.currentUser) {
       const res = await joinPrivateSpaceInFirestore(user, code);
       if (res.success) {
         await get().initializeSession();
