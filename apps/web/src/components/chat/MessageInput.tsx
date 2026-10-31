@@ -23,9 +23,20 @@ import {
 import { useChatStore } from '@/store/useChatStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { uploadMediaToFirebaseStorage } from '@/lib/firebase/storage';
+import type { UploadTask } from 'firebase/storage';
 import { InAppCameraModal } from '@/components/chat/InAppCameraModal';
 import { formatBytes } from '@ourspace/shared';
 import { cn } from '@/lib/utils';
+
+export type UploadStage =
+  | 'IDLE'
+  | 'PREPARING IMAGE'
+  | 'CONNECTING TO FIREBASE'
+  | 'UPLOADING'
+  | 'FINALIZING UPLOAD'
+  | 'SAVING MESSAGE'
+  | 'SENT'
+  | 'UPLOAD FAILED';
 
 interface MessageInputProps {
   onOpenGiphy: () => void;
@@ -45,8 +56,12 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   const [stagedMediaList, setStagedMediaList] = useState<StagedMedia[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStage, setUploadStage] = useState<UploadStage>('IDLE');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+
+  const activeUploadTaskRef = useRef<UploadTask | null>(null);
+  const activeMessageIdRef = useRef<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -362,6 +377,18 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     }
   };
 
+  const handleCancelUpload = () => {
+    if (activeUploadTaskRef.current) {
+      try {
+        activeUploadTaskRef.current.cancel();
+      } catch {}
+      activeUploadTaskRef.current = null;
+    }
+    setIsUploading(false);
+    setUploadStage('IDLE');
+    setUploadError('Upload cancelled by operator.');
+  };
+
   const handleSend = async () => {
     if (!space || !user || isUploading) return;
     if (!text.trim() && stagedMediaList.length === 0) return;
@@ -371,6 +398,16 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
         setIsUploading(true);
         setUploadProgress(0);
         setUploadError(null);
+        setUploadStage('PREPARING IMAGE');
+
+        // Retain stable message ID across retries so it is idempotent
+        if (!activeMessageIdRef.current) {
+          activeMessageIdRef.current =
+            'msg-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36);
+        }
+        const messageId = activeMessageIdRef.current;
+
+        setUploadStage('CONNECTING TO FIREBASE');
 
         const uploadedAttachments = [];
         const totalItems = stagedMediaList.length;
@@ -381,10 +418,16 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             space.id,
             item.category,
             item.file,
-            (percent) => {
-              const base = (i / totalItems) * 100;
-              const contribution = percent / totalItems;
-              setUploadProgress(Math.round(base + contribution));
+            {
+              onTaskCreated: (task) => {
+                activeUploadTaskRef.current = task;
+              },
+              onProgress: (percent) => {
+                setUploadStage('UPLOADING');
+                const base = (i / totalItems) * 100;
+                const contribution = percent / totalItems;
+                setUploadProgress(Math.min(99, Math.round(base + contribution)));
+              },
             },
             user.id
           );
@@ -403,11 +446,17 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           });
         }
 
+        activeUploadTaskRef.current = null;
+        setUploadStage('FINALIZING UPLOAD');
+        setUploadProgress(99);
+
         // Write message to Firestore storing only metadata (no large base64 or blob URLs)
         const primaryCat = uploadedAttachments[0]?.media_category;
         const msgType = primaryCat === 'image' ? 'image' : (primaryCat || 'image');
 
+        setUploadStage('SAVING MESSAGE');
         await sendMessage({
+          messageId,
           spaceId: space.id,
           senderId: user.id,
           content: text.trim() || null,
@@ -416,13 +465,23 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           attachments: uploadedAttachments,
         });
 
-        // Clean up object URLs
+        // 100% only after both upload and Firestore save complete
+        setUploadProgress(100);
+        setUploadStage('SENT');
+
+        // Clean up object URLs only after confirmed Firestore write
         stagedMediaList.forEach((item) => {
           if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
         });
         setStagedMediaList([]);
-        setIsUploading(false);
-        setUploadProgress(0);
+        setText('');
+        activeMessageIdRef.current = null;
+
+        setTimeout(() => {
+          setIsUploading(false);
+          setUploadProgress(0);
+          setUploadStage('IDLE');
+        }, 500);
       } else {
         // Plain text message
         await sendMessage({
@@ -432,15 +491,20 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           type: 'text',
           replyToId: activeReply?.id || null,
         });
+        setText('');
       }
 
-      setText('');
       setTyping(space.id, user.id, false);
     } catch (err: unknown) {
       console.error('[Send Message Error]', err);
-      const msg = err instanceof Error ? err.message : 'Upload failed. Please check network and retry.';
+      activeUploadTaskRef.current = null;
+      setUploadStage('UPLOAD FAILED');
+      const msg =
+        (err as any)?.userMessage ||
+        (err instanceof Error ? err.message : 'Upload failed. Please check network and retry.');
       setUploadError(msg);
       setIsUploading(false);
+      // Retain staged attachments and text so user can retry without losing their work!
     }
   };
 
@@ -453,20 +517,35 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   ) => {
     if (!space || !user) return;
     setIsUploading(true);
-    setUploadProgress(10);
+    setUploadProgress(0);
     setUploadError(null);
+    setUploadStage('CONNECTING TO FIREBASE');
+
+    const messageId =
+      'msg-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36);
 
     try {
       // 1. Resumable upload of original photo to Firebase Cloud Storage using canonical 'image' category
+      setUploadStage('UPLOADING');
       const uploadResult = await uploadMediaToFirebaseStorage(
         space.id,
         'image',
         file,
-        (percent) => setUploadProgress(percent),
+        {
+          onTaskCreated: (task) => {
+            activeUploadTaskRef.current = task;
+          },
+          onProgress: (percent) => {
+            setUploadStage('UPLOADING');
+            setUploadProgress(Math.min(95, percent));
+          },
+        },
         user.id
       );
 
-      // 2. Resumable upload of thumbnail to Firebase Cloud Storage using canonical 'image' category
+      activeUploadTaskRef.current = null;
+
+      // 2. Resumable upload of thumbnail to Firebase Cloud Storage
       let thumbUrl: string | undefined;
       let thumbPath: string | undefined;
       try {
@@ -484,7 +563,10 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
       }
 
       // 3. Save message with metadata only to Firestore
+      setUploadStage('SAVING MESSAGE');
+      setUploadProgress(99);
       await sendMessage({
+        messageId,
         spaceId: space.id,
         senderId: user.id,
         content: caption || null,
@@ -506,12 +588,23 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
         },
       });
 
-      setIsUploading(false);
-      setUploadProgress(0);
+      setUploadStage('SENT');
+      setUploadProgress(100);
+
+      setTimeout(() => {
+        setIsUploading(false);
+        setUploadProgress(0);
+        setUploadStage('IDLE');
+      }, 500);
+
       setTyping(space.id, user.id, false);
     } catch (err: unknown) {
       console.error('[In-App Camera Upload Error]', err);
-      const msg = err instanceof Error ? err.message : 'Photo upload failed. Please try again.';
+      activeUploadTaskRef.current = null;
+      setUploadStage('UPLOAD FAILED');
+      const msg =
+        (err as any)?.userMessage ||
+        (err instanceof Error ? err.message : 'Photo upload failed. Please try again.');
       setUploadError(msg);
       setIsUploading(false);
       throw err;
@@ -528,28 +621,40 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     <div className="flex flex-col gap-2 p-3 sm:p-4 glass-panel border-t border-rose-200/50 dark:border-purple-900/30">
       {/* Speech / Upload Error Banner */}
       {(speechError || uploadError) && (
-        <div className="px-3.5 py-2 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between gap-2 shadow-sm animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>{speechError || uploadError}</span>
+        <div className="px-3.5 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-900/60 text-amber-900 dark:text-amber-200 text-xs flex items-center justify-between gap-2 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <div className="flex flex-col min-w-0">
+              {uploadError && (
+                <span className="text-[10px] uppercase font-extrabold tracking-wider text-rose-600 dark:text-rose-400">
+                  UPLOAD FAILED
+                </span>
+              )}
+              <span className="truncate max-w-[320px] sm:max-w-[480px]">
+                {speechError || uploadError}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {uploadError && stagedMediaList.length > 0 && (
               <button
+                type="button"
                 onClick={handleSend}
                 disabled={isUploading}
-                className="px-2.5 py-1 rounded-xl bg-amber-200 dark:bg-amber-900/60 font-bold hover:bg-amber-300 text-[11px] flex items-center gap-1 transition-colors"
+                className="px-2.5 py-1 rounded-xl bg-rose-200 dark:bg-rose-900/70 hover:bg-rose-300 dark:hover:bg-rose-800 text-rose-950 dark:text-rose-100 font-bold text-[11px] flex items-center gap-1 transition-colors shadow-sm"
               >
                 <RefreshCw className="w-3 h-3" />
                 <span>Retry</span>
               </button>
             )}
             <button
+              type="button"
               onClick={() => {
                 setSpeechError(null);
                 setUploadError(null);
               }}
-              className="p-1 rounded-full text-amber-500 hover:text-amber-700"
+              className="p-1 rounded-full text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition-colors"
+              title="Dismiss error"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -640,18 +745,48 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             ))}
           </div>
 
-          {/* Upload Progress Bar */}
+          {/* Explicit Upload Stage & Progress Bar */}
           {isUploading && (
-            <div className="w-full mt-1 flex items-center gap-2">
-              <div className="flex-1 h-2 rounded-full bg-rose-100 dark:bg-zinc-800 overflow-hidden">
+            <div className="w-full mt-2 p-2.5 rounded-xl bg-rose-50/80 dark:bg-zinc-800/80 border border-rose-200/80 dark:border-zinc-700 flex flex-col gap-1.5 animate-in fade-in">
+              <div className="flex items-center justify-between text-[11px] font-bold">
+                <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span className="uppercase tracking-wider font-mono">
+                    {uploadStage === 'PREPARING IMAGE'
+                      ? 'PREPARING IMAGE...'
+                      : uploadStage === 'CONNECTING TO FIREBASE'
+                      ? 'CONNECTING TO FIREBASE...'
+                      : uploadStage === 'UPLOADING'
+                      ? `UPLOADING ${uploadProgress}%`
+                      : uploadStage === 'FINALIZING UPLOAD'
+                      ? 'FINALIZING UPLOAD...'
+                      : uploadStage === 'SAVING MESSAGE'
+                      ? 'SAVING MESSAGE...'
+                      : uploadStage === 'SENT'
+                      ? 'SENT'
+                      : 'UPLOADING...'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-rose-600 dark:text-rose-400 font-bold">
+                    {uploadProgress}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCancelUpload}
+                    className="px-2 py-0.5 rounded-lg bg-rose-200 hover:bg-rose-300 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-[10px] font-bold text-rose-800 dark:text-zinc-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+
+              <div className="w-full h-2 rounded-full bg-rose-100 dark:bg-zinc-900 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-rose-500 to-pink-500 transition-all duration-200"
+                  className="h-full bg-gradient-to-r from-rose-500 via-pink-500 to-purple-500 transition-all duration-200 ease-out"
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
-              <span className="text-[11px] font-bold text-rose-600 font-mono">
-                {uploadProgress}%
-              </span>
             </div>
           )}
         </div>

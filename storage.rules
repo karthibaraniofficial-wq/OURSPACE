@@ -27,14 +27,14 @@ service firebase.storage {
              request.resource.contentType.matches('application/zip');
     }
 
-    // Space-isolated media directory
+    // Space-isolated media directory (Images, Videos, Audio, Documents)
     match /spaces/{spaceId}/{category}/{allFiles=**} {
       allow read: if isMemberOfSpace(spaceId);
-      allow create: if isMemberOfSpace(spaceId) && isValidFileSize() && isValidMimeType();
+      allow create, update: if isMemberOfSpace(spaceId) && isValidFileSize() && isValidMimeType();
       allow delete: if isMemberOfSpace(spaceId);
     }
 
-    // User-isolated encrypted locker files
+    // User-isolated encrypted locker / personal vault files
     match /users/{uid}/vault/{allVaultFiles=**} {
       allow read, write, delete: if isAuthenticated() && request.auth.uid == uid;
     }
@@ -45,7 +45,7 @@ service firebase.storage {
       allow write, delete: if isAuthenticated() && request.auth.uid == uid && isValidFileSize();
     }
 
-    // Default deny for everything else
+    // Default deny for all other paths
     match /{allPaths=**} {
       allow read, write: if false;
     }

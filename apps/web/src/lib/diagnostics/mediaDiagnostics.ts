@@ -7,9 +7,15 @@
 export type MediaStage =
   | 'PHOTO_SELECTED'
   | 'PHOTO_VALIDATED'
+  | 'PREFLIGHT_CHECK_STARTED'
+  | 'PREFLIGHT_CHECK_FAILED'
+  | 'PREFLIGHT_CHECK_SUCCESS'
   | 'UPLOAD_STARTED'
+  | 'UPLOAD_RUNNING'
   | 'UPLOAD_PROGRESS'
+  | 'UPLOAD_PAUSED'
   | 'UPLOAD_COMPLETED'
+  | 'UPLOAD_FAILED'
   | 'DOWNLOAD_REFERENCE_RESOLVED'
   | 'MESSAGE_WRITE_STARTED'
   | 'MESSAGE_WRITE_COMPLETED'
@@ -29,6 +35,12 @@ export interface MediaLogEvent {
   progress?: number;
   durationMs?: number;
   error?: string;
+  storageBucket?: string;
+  errorCode?: string;
+  httpStatus?: number;
+  bytesTransferred?: number;
+  totalBytes?: number;
+  taskState?: string;
 }
 
 export function logMediaEvent(event: MediaLogEvent): void {
@@ -38,12 +50,18 @@ export function logMediaEvent(event: MediaLogEvent): void {
     stage: event.stage,
     space: event.spaceId ? `${event.spaceId.substring(0, 8)}...` : undefined,
     sender: event.senderId ? `${event.senderId.substring(0, 8)}...` : undefined,
+    bucket: event.storageBucket,
+    path: event.fileId,
     name: event.fileName,
     size: event.fileSize,
     mime: event.mimeType,
     category: event.category,
     progress: event.progress !== undefined ? `${event.progress}%` : undefined,
+    bytes: event.bytesTransferred !== undefined ? `${event.bytesTransferred}/${event.totalBytes}` : undefined,
+    state: event.taskState,
     duration: event.durationMs !== undefined ? `${event.durationMs}ms` : undefined,
+    code: event.errorCode,
+    status: event.httpStatus,
     error: event.error,
   };
 

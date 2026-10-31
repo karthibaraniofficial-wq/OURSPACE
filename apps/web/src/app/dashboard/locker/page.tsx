@@ -32,10 +32,14 @@ import {
   CheckCircle2,
   Copy,
   Check,
+  Paperclip,
+  Film,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useLockerStore } from '@/store/useLockerStore';
 import type { LockerSection } from '@ourspace/types';
+import { formatBytes } from '@ourspace/shared';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -100,6 +104,13 @@ export default function LockerPage() {
   const [itemTitle, setItemTitle] = useState('');
   const [itemContent, setItemContent] = useState('');
   const [extraSecret, setExtraSecret] = useState('');
+  const [attachedFile, setAttachedFile] = useState<{
+    name: string;
+    size: number;
+    type: string;
+    dataUrl: string;
+  } | null>(null);
+  const [isReadingFile, setIsReadingFile] = useState(false);
 
   // Backup Management Modal
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
@@ -121,6 +132,33 @@ export default function LockerPage() {
   // Reset Wipe Modal
   const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
   const [wipeConfirmText, setWipeConfirmText] = useState('');
+
+  const handleLockerFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      alert('Locker attachment ceiling is 20MB.');
+      return;
+    }
+
+    setIsReadingFile(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAttachedFile({
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        dataUrl: reader.result as string,
+      });
+      setIsReadingFile(false);
+    };
+    reader.onerror = () => {
+      alert('Failed to read file.');
+      setIsReadingFile(false);
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     if (user?.id) {
@@ -182,6 +220,7 @@ export default function LockerPage() {
       payload: {
         body: itemContent.trim(),
         secret: extraSecret.trim() || undefined,
+        file: attachedFile || undefined,
         createdAt: new Date().toISOString(),
       },
     });
@@ -189,6 +228,7 @@ export default function LockerPage() {
     setItemTitle('');
     setItemContent('');
     setExtraSecret('');
+    setAttachedFile(null);
     setIsItemModalOpen(false);
   };
 
@@ -698,6 +738,47 @@ export default function LockerPage() {
                     {item.payload.body}
                   </p>
 
+                  {item.payload.file && (
+                    <div className="mb-3">
+                      {item.payload.file.type?.startsWith('image/') || item.section === 'photos' ? (
+                        <div className="relative rounded-2xl overflow-hidden border border-rose-200/80 mb-2">
+                          <img
+                            src={item.payload.file.dataUrl}
+                            alt={item.title}
+                            className="w-full max-h-56 object-cover"
+                          />
+                        </div>
+                      ) : item.payload.file.type?.startsWith('video/') ? (
+                        <div className="relative rounded-2xl overflow-hidden border border-purple-200/80 mb-2">
+                          <video
+                            src={item.payload.file.dataUrl}
+                            controls
+                            className="w-full max-h-56 rounded-2xl"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/80 dark:bg-zinc-800 border border-rose-200/60 mb-2">
+                          <div className="flex items-center gap-2 truncate">
+                            <FileText className="w-4 h-4 text-rose-500 shrink-0" />
+                            <span className="truncate text-xs font-semibold">{item.payload.file.name}</span>
+                          </div>
+                          <span className="text-[10px] text-stone-400 shrink-0">
+                            {formatBytes(item.payload.file.size)}
+                          </span>
+                        </div>
+                      )}
+
+                      <a
+                        href={item.payload.file.dataUrl}
+                        download={item.payload.file.name || 'locker_file'}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-rose-100 hover:bg-rose-200 dark:bg-zinc-800 text-rose-700 dark:text-zinc-200 text-[11px] font-bold transition-colors"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Download Decrypted {item.payload.file.type?.startsWith('image/') ? 'Photo' : item.payload.file.type?.startsWith('video/') ? 'Video' : 'File'}</span>
+                      </a>
+                    </div>
+                  )}
+
                   {item.payload.secret && (
                     <div className="p-2.5 rounded-xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200/50 text-[11px] font-mono text-rose-700 dark:text-rose-300 break-all mb-2">
                       🔒 Secret: {item.payload.secret}
@@ -892,11 +973,56 @@ export default function LockerPage() {
             onChange={(e) => setExtraSecret(e.target.value)}
           />
 
+          {/* Optional Attachment Picker for Photos, Videos, and Files */}
+          <div className="p-3 rounded-2xl bg-rose-50/50 dark:bg-zinc-800/50 border border-rose-200/60 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <label className="font-semibold text-stone-700 dark:text-zinc-200 flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5 text-rose-500" />
+                <span>Attach Photo, Video, or File (Optional)</span>
+              </label>
+              {attachedFile && (
+                <button
+                  type="button"
+                  onClick={() => setAttachedFile(null)}
+                  className="text-[11px] text-red-500 hover:underline"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+
+            {attachedFile ? (
+              <div className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-zinc-900 border border-rose-200 text-xs">
+                <div className="flex items-center gap-2 truncate">
+                  {attachedFile.type.startsWith('image/') ? (
+                    <ImageIcon className="w-4 h-4 text-rose-500 shrink-0" />
+                  ) : attachedFile.type.startsWith('video/') ? (
+                    <Film className="w-4 h-4 text-purple-500 shrink-0" />
+                  ) : (
+                    <FileText className="w-4 h-4 text-rose-500 shrink-0" />
+                  )}
+                  <span className="truncate font-semibold">{attachedFile.name}</span>
+                </div>
+                <span className="text-[10px] text-stone-400 shrink-0">
+                  {formatBytes(attachedFile.size)}
+                </span>
+              </div>
+            ) : (
+              <input
+                type="file"
+                accept="image/*,video/*,application/pdf,application/msword,text/plain,application/zip"
+                onChange={handleLockerFileSelect}
+                disabled={isReadingFile}
+                className="text-xs text-stone-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-rose-100 file:text-rose-700 hover:file:bg-rose-200 cursor-pointer"
+              />
+            )}
+          </div>
+
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button variant="ghost" type="button" onClick={() => setIsItemModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit">
+            <Button variant="primary" type="submit" disabled={isReadingFile}>
               Encrypt & Save to Locker
             </Button>
           </div>

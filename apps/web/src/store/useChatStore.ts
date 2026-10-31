@@ -20,6 +20,7 @@ interface ChatState {
   // Actions
   fetchMessages: (spaceId: UUID) => Promise<void>;
   sendMessage: (payload: {
+    messageId?: UUID;
     spaceId: UUID;
     senderId: UUID;
     content: string | null;
@@ -76,13 +77,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: async ({ spaceId, senderId, content, type = 'text', replyToId = null, attachment, attachments }) => {
-    const newMessageId = 'msg-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36);
+  sendMessage: async ({
+    messageId,
+    spaceId,
+    senderId,
+    content,
+    type = 'text',
+    replyToId = null,
+    attachment,
+    attachments,
+  }) => {
+    const newMessageId =
+      messageId ||
+      'msg-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36);
 
     const createdAttachments: MessageAttachment[] = [];
-    const sourceAttachments = attachments && attachments.length > 0 
-      ? attachments 
-      : (attachment ? [attachment] : []);
+    const sourceAttachments =
+      attachments && attachments.length > 0 ? attachments : attachment ? [attachment] : [];
 
     sourceAttachments.forEach((att) => {
       if (att && (att.file_name || att.download_url || att.signed_url || att.file_path || att.storage_path)) {
@@ -138,11 +149,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       receipts: [],
     };
 
-    // Optimistic UI update
-    set((state) => ({
-      messages: [...state.messages, newMessage],
-      activeReply: null,
-    }));
+    // Optimistic UI update (idempotent for retries)
+    set((state) => {
+      const existingIdx = state.messages.findIndex((m) => m.id === newMessageId);
+      if (existingIdx >= 0) {
+        const next = [...state.messages];
+        next[existingIdx] = newMessage;
+        return { messages: next, activeReply: null };
+      }
+      return {
+        messages: [...state.messages, newMessage],
+        activeReply: null,
+      };
+    });
 
     playChime('subtle-pop');
 
@@ -150,14 +169,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       try {
         await sendMessageToFirestore(spaceId, newMessage);
       } catch (err) {
-        console.error('Failed to sync message to Firestore:', err);
+        // Rollback optimistic message so rejected messages do not falsely appear as sent
+        set((state) => ({
+          messages: state.messages.filter((m) => m.id !== newMessageId),
+        }));
+        console.error('[useChatStore] Failed to write message to Firestore:', err);
+        throw err;
       }
     } else {
       try {
         const localKey = `ourspace_messages_${spaceId}`;
         const local = localStorage.getItem(localKey);
         const parsed = local ? JSON.parse(local) : [];
-        localStorage.setItem(localKey, JSON.stringify([...parsed, newMessage]));
+        const existingIdx = parsed.findIndex((m: Message) => m.id === newMessageId);
+        if (existingIdx >= 0) {
+          parsed[existingIdx] = newMessage;
+          localStorage.setItem(localKey, JSON.stringify(parsed));
+        } else {
+          localStorage.setItem(localKey, JSON.stringify([...parsed, newMessage]));
+        }
       } catch {}
     }
   },

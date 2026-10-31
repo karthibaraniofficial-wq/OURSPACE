@@ -304,6 +304,7 @@ export interface EncryptedLockerItem {
   title_ciphertext: string;
   payload_ciphertext: string;
   iv: string;
+  payload_iv?: string;
   salt: string;
   is_favourite: boolean;
   is_archived: boolean;

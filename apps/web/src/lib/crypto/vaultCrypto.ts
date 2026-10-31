@@ -119,11 +119,16 @@ export async function computeKeyVerifier(key: CryptoKey): Promise<string> {
  */
 export async function encryptPayload(
   payload: any,
-  key: CryptoKey
+  key: CryptoKey,
+  customIv?: Uint8Array | string
 ): Promise<{ ciphertext: string; iv: string }> {
   const subtle = getSubtleCrypto();
   const encoder = new TextEncoder();
-  const iv = generateRandomBytes(12); // 12-byte IV standard for AES-GCM
+  const iv = customIv
+    ? typeof customIv === 'string'
+      ? hexToBuffer(customIv)
+      : customIv
+    : generateRandomBytes(12);
   const plaintext = typeof payload === 'string' ? payload : JSON.stringify(payload);
 
   const encryptedBuffer = await subtle.encrypt(
