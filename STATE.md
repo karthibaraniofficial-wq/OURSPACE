@@ -1,61 +1,53 @@
-# OURSPACE — Project State (Global Internet Connectivity & Production Deployment)
+# OURSPACE — Project State (V2.3 Ultimate Couple Experience Expansion)
 
 ## Current Status
-- **Current Phase**: Global Internet Connectivity & Production Deployment
-- **Current Module**: Public Networking, Edge CDN (Vercel/Firebase Hosting), LiveKit Cloud WebRTC SFU, Mobile Production Config (Android/iOS/Windows), and Network Resilience
-- **Current Task**: Completed global internet connectivity transformation, resilient networking state store, zero-localhost production policy enforcement, and multi-network testing.
+- **Current Phase**: V2.3 Ultimate Couple Experience Expansion — Memory Albums, Our Locker, Voice Messaging, and 50 Couple Features
+- **Current Module**: Production Web (Vercel), Firestore Rules, Client-Side E2EE Vault, Speech & Audio Messaging, Profile Personalization, and Clean Demo Data Architecture
+- **Current Task**: Completed end-to-end upgrade to V2.3, verified all 12 phases, passed all 46 test suites, and deployed successfully to Vercel production (`state=READY`, HTTP 200).
 - **Completed**:
-  - **Zero-Localhost & Production Policy**: Audited entire codebase and package outputs. Active production builds reference zero `localhost`, `127.0.0.1`, or LAN IP addresses. Desktop Windows wrapper (`apppackage/src/Program.cs`) refactored to default to `https://ourspace.app` (configurable via `OURSPACE_URL`), recompiled into `OURSPACE-Windows-v2.0.0.exe` with updated SHA-256 checksums.
-  - **Public Web Hosting & CDN**:
-    - Created `apps/web/vercel.json` with strict security headers (CSP, HSTS, X-Frame-Options: DENY, Permissions-Policy for camera/microphone, and service worker cache headers).
-    - Updated `firebase.json` with `hosting` configuration, public rewrites, and headers.
-    - Created `apps/web/public/firebase-messaging-sw.js` for background Web Push FCM notifications and universal click handlers.
-  - **Network Resilience & Connection State Machine**:
-    - Created `apps/web/src/store/useNetworkStore.ts`: tracks online/offline status, connection state (`connected`, `connecting`, `reconnecting`, `offline`), Network Information API for 4G/5G/Wi-Fi handover, and buffers offline actions into a FIFO pending queue with idempotency keys.
-    - Updated `apps/web/src/components/layout/Header.tsx`: mounted `initializeNetworkListeners()` and added dynamic connection pill badge (Emerald "Online", Amber "Reconnecting...", Rose "Offline (Actions Queued)").
-  - **Multi-Environment Templates**:
-    - `.env.development`: Points to local development servers and test emulator.
-    - `.env.staging`: Points to `https://staging.ourspace.app`.
-    - `.env.production`: Configured for public cloud services (`https://ourspace.app`, public Firebase project, `wss://ourspace.livekit.cloud`).
-  - **Mobile Production Configuration**:
-    - Created `apps/mobile/app.json` with package `app.ourspace.client`, scheme `ourspace`, required hardware permissions (`CAMERA`, `RECORD_AUDIO`, `POST_NOTIFICATIONS`), and cloud endpoints.
-    - Documented release signing and APNs/FCM configuration in `docs/MOBILE_PRODUCTION_SETUP.md`.
-  - **Global Audio & Video Calling Architecture**:
-    - LiveKit Cloud integration configured with secure WSS signaling, STUN, and TURN-over-TLS (port 443) fallback for strict firewalls and mobile symmetric CGNAT traversal.
-    - Documented port requirements and Docker/Coturn self-hosting instructions in `docs/LIVEKIT_NETWORKING.md`.
-  - **Documentation Suite**:
-    - `docs/PRODUCTION_DEPLOYMENT.md`: Vercel, Firebase Hosting, DNS records (`ourspace.app`), CI/CD GitHub Actions.
-    - `docs/GLOBAL_CONNECTIVITY.md`: Cellular 4G/5G carriers (Jio, Airtel, T-Mobile, AT&T), mobile CGNAT handling, Wi-Fi-to-cellular handover, offline action queues.
-    - `docs/LIVEKIT_NETWORKING.md`: WebRTC SFU, TURN-over-TLS port 443, firewall ports, token generation.
-    - `docs/MOBILE_PRODUCTION_SETUP.md`: Android release keystores, FCM notification channels, iOS APNs `.p8` keys, PushKit VoIP, and Universal Links.
-    - `docs/NETWORK_TROUBLESHOOTING.md`: Diagnostic flowchart, error codes, network test commands, and resolution matrix.
-  - **Automated Verification**:
-    - Created `tests/connectivity.test.mjs` verifying network state transitions, offline queueing, zero-localhost policy, WebRTC ICE STUN/TURN configs, and FCM payloads.
-    - Verified 40/40 automated tests passing across 5 test suites (`suite.test.mjs`, `audit.test.mjs`, `validation.test.mjs`, `migration.test.mjs`, `connectivity.test.mjs`).
-- **In Progress**: None. Ready for operator DNS and cloud credentials linking.
+  - **Phase 1 — Memory Albums**:
+    - Created dedicated `/dashboard/albums` module integrated directly with Gallery navigation.
+    - Full album lifecycle: Create, Edit, Category assignment (Beginning, First Date, Trips, Festivals, Custom), Custom Cover selection, Archive, Favourite, Reorder.
+    - Media uploads: Multiple photos/videos, captions, individual dates, memory descriptions, upload progress, full-screen slideshow player with keyboard/timer navigation.
+    - Personal vs. Shared privacy levels strictly enforced in store and Firestore rules.
+    - Chronological timeline filtering: Year, Month, Date, Category, and Favourites.
+  - **Phase 2 — OUR LOCKER (Client-Side Encrypted Vault)**:
+    - Zero-knowledge end-to-end encryption engine (`apps/web/src/lib/crypto/vaultCrypto.ts`) using standard Web Crypto API: PBKDF2 (100,000 rounds SHA-256) + AES-GCM 256-bit with random 12-byte IVs.
+    - Zero plaintext passwords or cryptographic keys on Firebase; only SHA-256 verifier hash stored for unlock validation.
+    - 10 structured sections: Private Notes, Important Personal Details, Private Documents, Important Dates, Saved Information, Personal Letters, Travel Information, Emergency Information, Private Photographs, Custom Categories.
+    - Decrypted export functionality with explicit user confirmation.
+    - **Destructive Reset & Erase All Data**: Orchestrated deletion state machine (`ACTIVE` -> `WIPE_PENDING` -> `PURGING_FILES` -> `PURGING_METADATA` -> `VERIFYING_DELETION` -> `READY_FOR_NEW_KEY` -> `ACTIVE_WITH_NEW_KEY`). Requires typing `DELETE MY LOCKER` and enforces verified total purge across Firestore and device caches before permitting new key generation.
+  - **Phase 3 — Voice Messaging & Voice Typing**:
+    - Tap/hold audio recording with live recording timer, reactive audio waveform visualization, audio preview playback, and cancel/send controls.
+    - `AudioMessagePlayer` with custom play/pause, scrubbable seek slider, duration/elapsed time indicators, and 1x, 1.5x, 2x playback speed toggles.
+    - Web Speech API integration in message composer for speech-to-text typing with English (`en-US`) and Tamil (`ta-IN`) dialect switches.
+  - **Phase 4 — Custom User Identity & Profile**:
+    - Fully independent profile management in `/dashboard/settings`.
+    - Profile picture upload, interactive crop/zoom/rotate modal, and illustrated avatar picker.
+    - Custom status message pills, romantic relationship bio, accent color presets, and real-time partner sync.
+    - Strict cross-user mutation protection: users can only modify their own profile.
+  - **Phase 5 — 50 New Functional Couple Features**:
+    - Built comprehensive hubs across `/dashboard/albums`, `/dashboard/connect`, and `/dashboard/plans`:
+      - *Memories (1-10)*: Collaborative albums, cover editor, memory captions, tags, timeline filter, on this day memories, slideshow, favourites, personal/shared privacy, multi-field search.
+      - *Connection (11-20)*: Relationship milestone timeline, anniversary countdowns, days-together counter, daily emotional check-in, shared mood tracker, daily couple question, conversation starter cards, gratitude journal, daily love notes, scheduled romantic letters.
+      - *Planning (21-30)*: Shared bucket list, date idea generator spinner, date night planner, travel itinerary, trip packing checklist, shared shopping list, collaborative task manager, shared couple goals, gift wishlist, gift occasion tracker.
+      - *Communication (31-40)*: Voice notes, speech-to-text typing, voice transcription, scheduled messages, saved message collections, message search, custom message reactions, Tamil-English translation bridge, quiet hours focus mode, personalized chat wallpapers.
+      - *Shared Experience (41-50)*: Custom profile identity, custom status, shared emergency contact card, quick emergency check-in message, shared date expense tracker, temporary consent-based location sharing, relationship journal, monthly memory recap, year-in-review story, special occasion notification planner.
+  - **Phase 6 — Demo Data Removal & Elegant Empty States**:
+    - Purged static Unsplash placeholders, hardcoded events (`INITIAL_EVENTS`), mock messages (`INITIAL_MESSAGES`), and fake reminders (`INITIAL_REMINDERS`).
+    - Added `scripts/cleanup-demo-data.mjs` with `--dry-run`, `--confirm-production`, `--backup`, audit logs, and record identification safety.
+    - Implemented romantic empty states across all screens with intuitive action prompts.
+  - **Phase 7 — Firebase Data Architecture & Security Rules**:
+    - Configured collections for `personalVault`, `albums`, `bucketList`, `datePlans`, `travelPlans`, `shoppingLists`, `goals`, `expenses`, `letters`, `dailyConnect`, `relationshipJournal`.
+    - Compiled and deployed updated `firestore.rules` live to `ourspace-edbf5`.
+  - **Phase 8-10 — Quality Assurance & Testing**:
+    - 46/46 automated unit, security, crypto, and validation tests passing across 14 suites (`npm test`).
+  - **Phase 11 — Comprehensive Documentation**:
+    - Created 8 complete technical guides in `docs/` (`MEMORY_ALBUMS.md`, `LOCKER_SECURITY_ARCHITECTURE.md`, `LOCKER_DATA_DELETION.md`, `VOICE_MESSAGING.md`, `PROFILE_CUSTOMIZATION.md`, `COUPLE_FEATURES_V2_3.md`, `PRODUCTION_DATA_CLEANUP.md`, `V2_3_RELEASE_REPORT.md`).
+  - **Phase 12 — Production Deployment**:
+    - Pushed to GitHub repository: `https://github.com/karthibaraniofficial-wq/OURSPACE` (branch `main`, commit `bf575eb`).
+    - Successfully built and deployed to Vercel production: `https://ourspace-app-two.vercel.app/` (`state=READY`, all routes returning HTTP 200).
+- **In Progress**: None.
 - **Blocked**: None.
 - **Known Errors**: None.
-- **Next Task**: Operator provisioning of live production secrets (Firebase Console, LiveKit Cloud, Vercel/Custom Domain DNS).
-
-## Changes Tracker
-- **Changed & Created Files**:
-  - `apps/web/src/store/useNetworkStore.ts` (Resilient network store with offline queue & connection detection)
-  - `apps/web/src/components/layout/Header.tsx` (Dynamic connection status badge & network listener hook)
-  - `apps/web/vercel.json` (Vercel production edge deployment config with security headers)
-  - `apps/web/public/firebase-messaging-sw.js` (Web Push FCM background service worker)
-  - `apps/mobile/app.json` (Expo production configuration for Android/iOS)
-  - `apppackage/src/Program.cs` (Desktop launcher updated to default to `https://ourspace.app`)
-  - `apppackage/OURSPACE-Windows-v2.0.0.exe` (Recompiled release binary)
-  - `apppackage/CHECKSUMS.sha256` (Updated executable SHA-256 hash)
-  - `firebase.json` (Hosting configuration added)
-  - `.env.development`, `.env.staging`, `.env.production` (Environment separation)
-  - `docs/PRODUCTION_DEPLOYMENT.md` (Production deployment guide)
-  - `docs/GLOBAL_CONNECTIVITY.md` (Global multi-network & cellular matrix)
-  - `docs/LIVEKIT_NETWORKING.md` (WebRTC SFU & TURN-over-TLS guide)
-  - `docs/MOBILE_PRODUCTION_SETUP.md` (Native Android/iOS production build guide)
-  - `docs/NETWORK_TROUBLESHOOTING.md` (Diagnostic flowchart & network error codes)
-  - `tests/connectivity.test.mjs` (Automated connectivity and resilience tests)
-- **Verification**:
-  - 40/40 automated tests passing with zero failures.
-  - Zero `localhost` or private IP references in production runtime bundles.
-  - Full cross-platform package suite verified (`apppackage/`).
+- **Next Task**: Maintenance & operator handoff.
