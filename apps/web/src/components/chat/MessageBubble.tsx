@@ -163,6 +163,7 @@ function AudioMessagePlayer({ att, isMine }: { att: any; isMine: boolean }) {
   );
 }
 
+export function MessageBubble({ message, currentUserId, onOpenMedia }: MessageBubbleProps) {
   const {
     activeReply,
     setActiveReply,
