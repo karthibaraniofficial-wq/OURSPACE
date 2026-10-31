@@ -92,7 +92,7 @@ export async function deriveKeyFromPassword(password: string, saltHex: string): 
   return await subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as unknown as BufferSource,
       iterations: 100000,
       hash: 'SHA-256',
     },
@@ -129,7 +129,7 @@ export async function encryptPayload(
   const encryptedBuffer = await subtle.encrypt(
     {
       name: 'AES-GCM',
-      iv,
+      iv: iv as unknown as BufferSource,
     },
     key,
     encoder.encode(plaintext)
@@ -157,10 +157,10 @@ export async function decryptPayload<T = any>(
   const decryptedBuffer = await subtle.decrypt(
     {
       name: 'AES-GCM',
-      iv,
+      iv: iv as unknown as BufferSource,
     },
     key,
-    encryptedBuffer
+    encryptedBuffer as unknown as BufferSource
   );
 
   const plaintext = decoder.decode(decryptedBuffer);
