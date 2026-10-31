@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Heart,
   Smile,
@@ -13,6 +13,8 @@ import {
   FileText,
   Download,
   MoreHorizontal,
+  Play,
+  Pause,
 } from 'lucide-react';
 import type { Message, UUID } from '@ourspace/types';
 import { formatChatTimestamp, formatBytes } from '@ourspace/shared';

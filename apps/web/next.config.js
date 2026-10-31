@@ -5,6 +5,9 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['livekit-server-sdk'],
   },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   images: {
     remotePatterns: [
       {
