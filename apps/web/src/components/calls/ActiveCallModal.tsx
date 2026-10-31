@@ -10,13 +10,56 @@ import {
   PhoneOff,
   Signal,
   Heart,
-  Volume2,
   VolumeX,
   AlertCircle,
   Radio,
 } from 'lucide-react';
 import { useCallStore } from '@/store/useCallStore';
 import { cn } from '@/lib/utils';
+
+interface TrackVideoProps {
+  track: any;
+  className?: string;
+  isLocal?: boolean;
+}
+
+/**
+ * Dedicated Track Video Renderer Component
+ * Ensures the <video> element is mounted in the DOM before track.attach() is called.
+ * Prevents race conditions and null ref attachments.
+ */
+function LiveKitTrackVideo({ track, className, isLocal = false }: TrackVideoProps) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !track) return;
+
+    try {
+      track.attach(el);
+    } catch (err) {
+      console.warn('[LiveKit Video Attach Error]', err);
+    }
+
+    return () => {
+      try {
+        track.detach(el);
+      } catch {}
+    };
+  }, [track]);
+
+  if (!track) return null;
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted={isLocal}
+      className={cn('w-full h-full object-cover', isLocal && 'scale-x-[-1]', className)}
+    />
+  );
+}
 
 export function ActiveCallModal() {
   const {
@@ -30,78 +73,25 @@ export function ActiveCallModal() {
     toggleMute,
     toggleVideo,
     endCall,
+    setMediaStatus,
+    setNetworkQuality,
   } = useCallStore();
 
+  const [localVideoTrack, setLocalVideoTrack] = useState<any>(null);
+  const [remoteVideoTrack, setRemoteVideoTrack] = useState<any>(null);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [isRemoteMuted, setIsRemoteMuted] = useState(false);
   const [mediaPermissionDenied, setMediaPermissionDenied] = useState<string | null>(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [liveKitConnected, setLiveKitConnected] = useState(false);
 
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
   const liveKitRoomRef = useRef<any>(null);
   const audioElementsRef = useRef<HTMLAudioElement[]>([]);
 
   const isVideo = activeCall?.call_type === 'video';
   const partner = activeCall?.receiver;
 
-  // 1. Initialize Local Camera and Microphone
-  useEffect(() => {
-    if (!activeCall) return;
-
-    let isMounted = true;
-
-    async function acquireLocalMedia() {
-      try {
-        setMediaPermissionDenied(null);
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: isVideo,
-        });
-
-        if (!isMounted) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-
-        localStreamRef.current = stream;
-
-        // Apply initial mute/video state
-        stream.getAudioTracks().forEach((track) => {
-          track.enabled = !isMuted;
-        });
-        stream.getVideoTracks().forEach((track) => {
-          track.enabled = isVideoEnabled;
-        });
-
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-        }
-      } catch (err: unknown) {
-        console.warn('[Camera/Microphone Permission Error]', err);
-        const name = (err as Error)?.name;
-        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-          setMediaPermissionDenied('Camera or Microphone access was denied. Please check your browser permissions.');
-        } else {
-          setMediaPermissionDenied('Could not access media hardware on this device.');
-        }
-      }
-    }
-
-    acquireLocalMedia();
-
-    return () => {
-      isMounted = false;
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => track.stop());
-        localStreamRef.current = null;
-      }
-    };
-  }, [activeCall?.id, isVideo]);
-
-  // 2. Connect to LiveKit Room for Remote Audio & Video Media
+  // Single source of truth: Connect to LiveKit Room for ALL media (mic, camera, tracks)
   useEffect(() => {
     if (!activeCall || activeCall.status !== 'active') return;
     if (!liveKitToken) return;
@@ -111,42 +101,77 @@ export function ActiveCallModal() {
 
     async function connectRoom() {
       try {
-        const { Room, RoomEvent, Track } = await import('livekit-client');
+        setMediaPermissionDenied(null);
+        const { Room, RoomEvent, Track, ConnectionState } = await import('livekit-client');
 
         const room = new Room({
           adaptiveStream: true,
           dynacast: true,
+          audioCaptureDefaults: {
+            autoGainControl: true,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+          publishDefaults: {
+            simulcast: true,
+          },
         });
 
         roomInstance = room;
         liveKitRoomRef.current = room;
 
+        // Monitor connection lifecycle
+        room.on(RoomEvent.ConnectionStateChanged, (state: any) => {
+          if (!isMounted) return;
+          console.log('[LiveKit Connection State]', state);
+          if (state === ConnectionState.Connected) {
+            setLiveKitConnected(true);
+            setMediaStatus('connected');
+          } else if (state === ConnectionState.Reconnecting) {
+            setMediaStatus('reconnecting');
+          } else if (state === ConnectionState.Disconnected) {
+            setLiveKitConnected(false);
+            setMediaStatus('disconnected');
+          }
+        });
+
         // Track Subscribed Event: Attach Remote Audio and Video Tracks
         room.on(RoomEvent.TrackSubscribed, (track: any, publication: any, participant: any) => {
           if (!isMounted) return;
 
+          console.log('[LiveKit Track Subscribed]', {
+            kind: track.kind,
+            participantIdentity: participant.identity,
+            trackSid: track.sid,
+          });
+
           if (track.kind === Track.Kind.Video) {
-            if (remoteVideoRef.current) {
-              track.attach(remoteVideoRef.current);
-              setHasRemoteVideo(true);
-            }
+            setRemoteVideoTrack(track);
+            setHasRemoteVideo(true);
+            setMediaStatus('connected');
           } else if (track.kind === Track.Kind.Audio) {
             const audioEl = track.attach();
             audioElementsRef.current.push(audioEl);
             audioEl.play().catch((playErr: unknown) => {
-              console.warn('[Audio Autoplay Blocked]', playErr);
+              console.warn('[Audio Autoplay Blocked - Requires User Gesture]', playErr);
               setAutoplayBlocked(true);
             });
+            setMediaStatus('connected');
           }
         });
 
+        // Track Unsubscribed Event: Cleanly Detach
         room.on(RoomEvent.TrackUnsubscribed, (track: any) => {
-          track.detach();
+          try {
+            track.detach();
+          } catch {}
           if (track.kind === Track.Kind.Video) {
+            setRemoteVideoTrack(null);
             setHasRemoteVideo(false);
           }
         });
 
+        // Mute / Unmute Track Events from Remote Participant
         room.on(RoomEvent.TrackMuted, (publication: any, participant: any) => {
           if (!participant.isLocal) {
             if (publication.kind === Track.Kind.Video) setHasRemoteVideo(false);
@@ -161,9 +186,39 @@ export function ActiveCallModal() {
           }
         });
 
-        room.on(RoomEvent.Disconnected, () => {
+        // Local Track Published Event: Attach local camera preview
+        room.on(RoomEvent.LocalTrackPublished, (publication: any) => {
+          if (!isMounted) return;
+          if (publication.kind === Track.Kind.Video) {
+            setLocalVideoTrack(publication.track);
+          }
+        });
+
+        room.on(RoomEvent.LocalTrackUnpublished, (publication: any) => {
+          if (!isMounted) return;
+          if (publication.kind === Track.Kind.Video) {
+            setLocalVideoTrack(null);
+          }
+        });
+
+        // Audio Autoplay policy change listener
+        room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+          if (room.canPlaybackAudio) {
+            setAutoplayBlocked(false);
+          }
+        });
+
+        // Remote participant joined / disconnected
+        room.on(RoomEvent.ParticipantConnected, (participant: any) => {
+          console.log('[LiveKit Remote Participant Connected]', participant.identity);
+        });
+
+        room.on(RoomEvent.ParticipantDisconnected, (participant: any) => {
+          console.log('[LiveKit Remote Participant Disconnected]', participant.identity);
           if (isMounted) {
-            setLiveKitConnected(false);
+            setRemoteVideoTrack(null);
+            setHasRemoteVideo(false);
+            setIsRemoteMuted(false);
           }
         });
 
@@ -177,17 +232,38 @@ export function ActiveCallModal() {
           return;
         }
 
+        console.log('[LiveKit Room Connected Successfully]', {
+          roomName: room.name,
+          localIdentity: room.localParticipant.identity,
+        });
+
         setLiveKitConnected(true);
+        setMediaStatus('connected');
 
-        // Publish local microphone
-        await room.localParticipant.setMicrophoneEnabled(!isMuted);
+        // 1. Publish local microphone track
+        try {
+          await room.localParticipant.setMicrophoneEnabled(!isMuted);
+        } catch (micErr: unknown) {
+          console.warn('[Microphone Permission Error]', micErr);
+          setMediaPermissionDenied('Microphone access was denied. Please check your browser permissions.');
+        }
 
-        // Publish local camera if video call
+        // 2. Publish local camera track if video call
         if (isVideo) {
-          await room.localParticipant.setCameraEnabled(isVideoEnabled);
+          try {
+            await room.localParticipant.setCameraEnabled(isVideoEnabled);
+            const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+            if (camPub?.videoTrack) {
+              setLocalVideoTrack(camPub.videoTrack);
+            }
+          } catch (camErr: unknown) {
+            console.warn('[Camera Permission Error]', camErr);
+            setMediaPermissionDenied('Camera access was denied. Please check your browser permissions.');
+          }
         }
       } catch (err: unknown) {
-        console.warn('[LiveKit Connection Warning - Using Local Media Session]', err);
+        console.warn('[LiveKit Connection Warning]', err);
+        setMediaStatus('disconnected');
       }
     }
 
@@ -196,26 +272,32 @@ export function ActiveCallModal() {
     return () => {
       isMounted = false;
       if (roomInstance) {
-        roomInstance.disconnect();
+        try {
+          roomInstance.localParticipant?.trackPublications?.forEach((pub: any) => {
+            if (pub.track) pub.track.stop();
+          });
+          roomInstance.disconnect();
+        } catch {}
         liveKitRoomRef.current = null;
       }
-      audioElementsRef.current.forEach((el) => el.remove());
+      audioElementsRef.current.forEach((el) => {
+        try {
+          el.pause();
+          el.remove();
+        } catch {}
+      });
       audioElementsRef.current = [];
+      setLocalVideoTrack(null);
+      setRemoteVideoTrack(null);
       setLiveKitConnected(false);
       setHasRemoteVideo(false);
     };
   }, [activeCall?.status, liveKitToken, liveKitUrl, isVideo]);
 
-  // 3. Sync Mute State with Hardware Media & LiveKit Participant
+  // Sync Mute State directly with LiveKit Local Participant
   const handleToggleMute = async () => {
     const nextMuted = !isMuted;
     toggleMute();
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = !nextMuted;
-      });
-    }
 
     if (liveKitRoomRef.current?.localParticipant) {
       try {
@@ -226,43 +308,62 @@ export function ActiveCallModal() {
     }
   };
 
-  // 4. Sync Video State with Hardware Media & LiveKit Participant
+  // Sync Camera State directly with LiveKit Local Participant
   const handleToggleVideo = async () => {
     const nextVideo = !isVideoEnabled;
     toggleVideo();
 
-    if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach((track) => {
-        track.enabled = nextVideo;
-      });
-    }
-
     if (liveKitRoomRef.current?.localParticipant) {
       try {
+        const { Track } = await import('livekit-client');
         await liveKitRoomRef.current.localParticipant.setCameraEnabled(nextVideo);
+        if (!nextVideo) {
+          setLocalVideoTrack(null);
+        } else {
+          const camPub = liveKitRoomRef.current.localParticipant.getTrackPublication(Track.Source.Camera);
+          if (camPub?.videoTrack) {
+            setLocalVideoTrack(camPub.videoTrack);
+          }
+        }
       } catch (err) {
         console.warn('[LiveKit Video Toggle Error]', err);
       }
     }
   };
 
-  // 5. Handle End Call & Hardware Release
+  // End Call & Complete Hardware Release
   const handleEndCall = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop());
-      localStreamRef.current = null;
-    }
     if (liveKitRoomRef.current) {
-      liveKitRoomRef.current.disconnect();
+      try {
+        liveKitRoomRef.current.localParticipant?.trackPublications?.forEach((pub: any) => {
+          if (pub.track) pub.track.stop();
+        });
+        liveKitRoomRef.current.disconnect();
+      } catch {}
       liveKitRoomRef.current = null;
     }
-    audioElementsRef.current.forEach((el) => el.remove());
+    audioElementsRef.current.forEach((el) => {
+      try {
+        el.pause();
+        el.remove();
+      } catch {}
+    });
     audioElementsRef.current = [];
+    setLocalVideoTrack(null);
+    setRemoteVideoTrack(null);
+    setHasRemoteVideo(false);
     endCall();
   };
 
-  // 6. Resume Autoplay if blocked by browser policy
-  const handleEnableAudio = () => {
+  // Resume Autoplay if blocked by browser policy
+  const handleEnableAudio = async () => {
+    if (liveKitRoomRef.current) {
+      try {
+        await liveKitRoomRef.current.startAudio();
+      } catch (err) {
+        console.warn('[startAudio error]', err);
+      }
+    }
     audioElementsRef.current.forEach((el) => {
       el.play().catch(() => {});
     });
@@ -344,7 +445,7 @@ export function ActiveCallModal() {
                     onClick={handleEnableAudio}
                     className="px-3 py-1 rounded-xl bg-rose-500 text-white font-bold text-xs hover:bg-rose-600 transition-colors"
                   >
-                    Tap to Enable Audio
+                    TAP TO ENABLE CALL AUDIO
                   </button>
                 </div>
               )}
@@ -354,14 +455,9 @@ export function ActiveCallModal() {
           {/* Main Video & Audio Presentation Stage */}
           <div className="relative flex-1 flex items-center justify-center overflow-hidden">
             {/* Real Remote Camera Video Feed */}
-            {isVideo && hasRemoteVideo ? (
+            {isVideo && remoteVideoTrack && hasRemoteVideo ? (
               <div className="absolute inset-0 w-full h-full">
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
+                <LiveKitTrackVideo track={remoteVideoTrack} />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
               </div>
             ) : (
@@ -391,7 +487,7 @@ export function ActiveCallModal() {
                   <p className="text-sm text-stone-300 mt-1 flex items-center justify-center gap-2">
                     {activeCall.status === 'ringing' ? (
                       'Ringing partner device...'
-                    ) : isVideo && !hasRemoteVideo ? (
+                    ) : isVideo && (!remoteVideoTrack || !hasRemoteVideo) ? (
                       <>
                         <VideoOff className="w-4 h-4 text-stone-400" />
                         <span>Partner camera is off • Audio connected</span>
@@ -414,14 +510,8 @@ export function ActiveCallModal() {
                 dragConstraints={{ left: -100, right: 100, top: -100, bottom: 100 }}
                 className="absolute top-24 right-4 sm:right-6 w-36 h-48 sm:w-44 sm:h-56 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 bg-stone-900 cursor-grab active:cursor-grabbing z-20"
               >
-                {isVideoEnabled ? (
-                  <video
-                    ref={localVideoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover mirror scale-x-[-1]"
-                  />
+                {isVideoEnabled && localVideoTrack ? (
+                  <LiveKitTrackVideo track={localVideoTrack} isLocal={true} />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900 text-stone-400 text-xs gap-2">
                     <VideoOff className="w-6 h-6 text-rose-500" />

@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
+import { getFunctions, type Functions } from 'firebase/functions';
 
 export interface FirebaseConfigStatus {
   isConfigured: boolean;
@@ -116,4 +117,8 @@ export function getFirebaseStorageInstance(customBucket?: string): FirebaseStora
     return getStorage(app, normalizedBucket);
   }
   return getStorage(app);
+}
+
+export function getFirebaseFunctions(region = 'us-central1'): Functions {
+  return getFunctions(getFirebaseApp(), region);
 }

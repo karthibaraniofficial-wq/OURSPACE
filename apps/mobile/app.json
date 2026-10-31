@@ -2,7 +2,7 @@
   "expo": {
     "name": "OURSPACE",
     "slug": "ourspace",
-    "version": "2.3.0",
+    "version": "2.4.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -30,7 +30,7 @@
         "backgroundColor": "#FAF8F5"
       },
       "package": "app.ourspace.client",
-      "versionCode": 230,
+      "versionCode": 244,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",

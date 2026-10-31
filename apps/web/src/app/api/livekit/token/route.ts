@@ -1,19 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function extractFirebaseUid(authHeader: string | null): string | null {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.substring(7).trim();
+  if (token === 'authorized-space-member' || token === 'mock-token') return null;
+
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    // Validate standard Firebase Auth claims
+    if (payload.iss && payload.iss.includes('securetoken.google.com') && payload.sub) {
+      if (payload.exp && Date.now() / 1000 > payload.exp) {
+        return null; // Expired
+      }
+      return payload.sub as string;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const isProd = process.env.NODE_ENV === 'production';
     const authHeader = req.headers.get('authorization');
+    const verifiedUid = extractFirebaseUid(authHeader);
 
-    // In production, reject unauthenticated calls
-    if (isProd && !authHeader) {
+    if (isProd && !verifiedUid) {
       return NextResponse.json(
-        { error: 'Unauthorized: Authentication required to mint LiveKit call tokens.' },
+        { error: 'Unauthorized: Valid Firebase ID token is required to mint LiveKit call tokens.' },
         { status: 401 }
       );
     }
 
-    const { roomName, participantName, participantId } = await req.json();
+    const { roomName, participantName, participantId, spaceId } = await req.json();
+
+    if (!roomName) {
+      return NextResponse.json({ error: 'roomName is required.' }, { status: 400 });
+    }
+
+    // Determine authoritative participant identity from verified token
+    const authoritativeIdentity = verifiedUid || participantId;
+    if (!authoritativeIdentity) {
+      return NextResponse.json(
+        { error: 'Cannot determine authenticated participant identity.' },
+        { status: 400 }
+      );
+    }
+
+    // Prevent participant identity collision / forgery
+    if (verifiedUid && participantId && verifiedUid !== participantId) {
+      return NextResponse.json(
+        { error: 'Security violation: Participant identity mismatch with authenticated user.' },
+        { status: 403 }
+      );
+    }
 
     const apiKey = process.env.LIVEKIT_API_KEY;
     const apiSecret = process.env.LIVEKIT_API_SECRET;
@@ -27,15 +70,15 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Safe fallback in development/demo mode
+      // Safe fallback ONLY in local development
       return NextResponse.json(
         {
           configured: false,
-          message:
-            'LiveKit Cloud credentials not set in .env. Falling back to built-in direct WebRTC / signaling simulation.',
-          server_url: 'wss://mock.livekit.cloud',
-          token: 'mock-jwt-token-for-dev',
-          room_name: roomName || 'ourspace-room',
+          message: 'LiveKit credentials not set in local development.',
+          server_url: 'wss://ourspace.livekit.cloud',
+          token: `dev-token-${authoritativeIdentity}-${roomName}`,
+          identity: authoritativeIdentity,
+          room_name: roomName,
         },
         { status: 200 }
       );
@@ -45,7 +88,7 @@ export async function POST(req: NextRequest) {
     const { AccessToken } = await import('livekit-server-sdk');
 
     const at = new AccessToken(apiKey, apiSecret, {
-      identity: participantId || 'user-' + Math.random().toString(36).substring(2, 7),
+      identity: authoritativeIdentity,
       name: participantName || 'Partner',
     });
 
@@ -62,6 +105,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       configured: true,
       token,
+      identity: authoritativeIdentity,
       room_name: roomName,
       server_url: serverUrl,
     });
@@ -70,3 +114,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
+

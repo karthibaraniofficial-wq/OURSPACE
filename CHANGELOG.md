@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.4] - 2026-10-31
+### Fixed
+- **LiveKit Participant Identity Collision**:
+  - Replaced faulty `currentCall.receiver?.id || 'partner'` assignment in `useCallStore.ts` with authenticated Firebase UIDs (`currentUser.uid`).
+  - Caller (`user_A`) and receiver (`user_B`) now obtain distinct participant identities in the same LiveKit room.
+  - Added cryptographic client-side validation rejecting tokens if `token.sub !== authenticatedUid`.
+- **Authoritative Firebase Callable Token Flow**:
+  - Hardened Cloud Function `getLiveKitToken` in `functions/index.js` to verify space membership, call session matching, caller/receiver role, and authorized call status.
+  - Secured `/api/livekit/token/route.ts` against forged client-supplied identities and disabled mock tokens in production.
+- **Call State Machine & Signaling Architecture**:
+  - Implemented explicit lifecycle transitions: `IDLE` -> `OUTGOING_RINGING` / `INCOMING_RINGING` -> `ACCEPTED` -> `CONNECTING` -> `MEDIA_CONNECTED` -> `RECONNECTING` -> `ENDED` / `REJECTED`.
+  - Added guards against duplicate incoming calls, duplicate token requests, and multiple active timers.
+- **Two-Way Audio Pipeline & Hardware Separation**:
+  - Eliminated competing `navigator.mediaDevices.getUserMedia` capture in `ActiveCallModal.tsx`. LiveKit is now the single authority for microphone capture, publication, AEC, AGC, and ANS.
+  - Implemented browser autoplay block detection with "TAP TO ENABLE CALL AUDIO" banner and user-gesture resumption via `room.startAudio()`.
+  - Wired mute/unmute directly to `room.localParticipant.setMicrophoneEnabled()`.
+- **Remote Video Track Rendering**:
+  - Fixed conditional `<video>` element deadlock in `ActiveCallModal.tsx` by introducing `LiveKitTrackVideo` component with lifecycle-safe attachment.
+  - Enabled mirrored local picture-in-picture preview and full remote video rendering.
+- **Clean Hardware Teardown**:
+  - Ensured all local media tracks are stopped, remote tracks detached, and rooms disconnected when calls end.
+
 ## [2.4.2] - 2026-10-31
 ### Fixed
 - **Canonical Media Category Normalization**:

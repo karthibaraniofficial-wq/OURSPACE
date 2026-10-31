@@ -238,28 +238,71 @@ export const checkScheduledReminders = onSchedule(
  * Callable: Mint LiveKit Room Token
  * Generates an authorized LiveKit JWT token for WebRTC calls.
  * Ensures caller is an authenticated space member before minting.
+ * Verifies call session ownership, room matching, and authorized status.
  * Strictly disables demo mock bypasses in production.
  */
 export const getLiveKitToken = onCall(async (request) => {
-  if (!request.auth) {
+  // 1. Authenticated Firebase user required
+  if (!request.auth || !request.auth.uid) {
     throw new HttpsError("unauthenticated", "Must be logged in to request a call token.");
   }
 
-  const { spaceId, roomName } = request.data || {};
+  const { spaceId, roomName, callId } = request.data || {};
   if (!spaceId || !roomName) {
     throw new HttpsError("invalid-argument", "spaceId and roomName are required.");
   }
 
   const uid = request.auth.uid;
 
-  // Validate space membership
+  // 2. Validate space membership
   const memberDoc = await db.collection("privateSpaces").doc(spaceId).collection("members").doc(uid).get();
-  if (!memberDoc.exists) {
+  const spaceDoc = await db.collection("privateSpaces").doc(spaceId).get();
+  const isMember = memberDoc.exists || 
+    (spaceDoc.exists && Array.isArray(spaceDoc.data()?.members) && spaceDoc.data().members.includes(uid));
+
+  if (!isMember) {
     throw new HttpsError("permission-denied", "You are not an authorized member of this private space.");
+  }
+
+  // 3. Validate call session if callId is provided
+  let displayName = memberDoc.data()?.displayName || request.auth.token.name || "OURSPACE User";
+
+  if (callId) {
+    const callDoc = await db.collection("privateSpaces").doc(spaceId).collection("callSessions").doc(callId).get();
+    if (!callDoc.exists) {
+      throw new HttpsError("not-found", "Requested call session does not exist in this space.");
+    }
+
+    const callData = callDoc.data();
+
+    // Verify caller or receiver authorization
+    if (callData.callerId !== uid && callData.receiverId !== uid) {
+      throw new HttpsError("permission-denied", "You are not an authorized participant of this call session.");
+    }
+
+    // Verify room name matches session
+    if (callData.roomName && callData.roomName !== roomName) {
+      throw new HttpsError("invalid-argument", "Supplied room name does not match the active call session.");
+    }
+
+    // Verify authorized call status
+    if (callData.status !== "ringing" && callData.status !== "active") {
+      throw new HttpsError(
+        "failed-precondition",
+        `Call session is no longer active (current status: ${callData.status}).`
+      );
+    }
+
+    if (callData.callerId === uid && callData.caller?.display_name) {
+      displayName = callData.caller.display_name;
+    } else if (callData.receiverId === uid && callData.receiver?.display_name) {
+      displayName = callData.receiver.display_name;
+    }
   }
 
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
+  const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_URL || "wss://ourspace.livekit.cloud";
 
   if (!apiKey || !apiSecret) {
     if (process.env.NODE_ENV === "production") {
@@ -274,6 +317,7 @@ export const getLiveKitToken = onCall(async (request) => {
       isDemo: true,
       identity: uid,
       roomName,
+      serverUrl,
     };
   }
 
@@ -281,17 +325,24 @@ export const getLiveKitToken = onCall(async (request) => {
     const { AccessToken } = await import("livekit-server-sdk");
     const at = new AccessToken(apiKey, apiSecret, {
       identity: uid,
-      name: request.auth.token.name || "OURSPACE User",
+      name: displayName,
     });
     at.addGrant({
       room: roomName,
       roomJoin: true,
       canPublish: true,
       canSubscribe: true,
+      canPublishData: true,
     });
 
     const token = await at.toJwt();
-    return { token, isDemo: false, identity: uid, roomName };
+    return {
+      token,
+      isDemo: false,
+      identity: uid,
+      roomName,
+      serverUrl,
+    };
   } catch (err) {
     console.error("[LIVEKIT TOKEN ERROR]", err);
     throw new HttpsError("internal", "Failed to generate LiveKit room token.");
