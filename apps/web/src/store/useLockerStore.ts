@@ -28,6 +28,14 @@ import {
   purgeAllLockerBackups,
   verifyEncryptedLockerBackup,
 } from '@/lib/drive/lockerDriveBackup';
+import {
+  saveVaultItem,
+  getVaultItems,
+  deleteVaultItem,
+  saveVaultMetadata,
+  getVaultMetadata,
+  clearVaultStorage,
+} from '@/lib/storage/vaultStorage';
 import { getFirebaseFirestore, isFirebaseConfigured } from '@/lib/firebase/firebase';
 import {
   doc,
@@ -117,8 +125,8 @@ export const useLockerStore = create<LockerState>((set, get) => ({
             lastBackupAt: data.last_backup_at || null,
             backupStatus: data.backup_status || 'IDLE',
           });
-          // Cache locally for offline durability
-          localStorage.setItem(`ourspace_vault_meta_${userId}`, JSON.stringify(data));
+          // Cache locally in IndexedDB + localStorage for offline durability
+          await saveVaultMetadata(userId, data);
           return;
         }
       } catch (err) {
@@ -126,20 +134,17 @@ export const useLockerStore = create<LockerState>((set, get) => ({
       }
     }
 
-    // 2. Fallback to localStorage
-    const localMeta = localStorage.getItem(`ourspace_vault_meta_${userId}`);
+    // 2. Fallback to IndexedDB / localStorage
+    const localMeta = await getVaultMetadata(userId);
     if (localMeta) {
-      try {
-        const meta = JSON.parse(localMeta) as LockerMetadata;
-        set({
-          isConfigured: true,
-          vaultMetadata: meta,
-          deletionState: meta.deletion_state || 'ACTIVE',
-          lastBackupAt: meta.last_backup_at || null,
-          backupStatus: meta.backup_status || 'IDLE',
-        });
-        return;
-      } catch {}
+      set({
+        isConfigured: true,
+        vaultMetadata: localMeta,
+        deletionState: localMeta.deletion_state || 'ACTIVE',
+        lastBackupAt: localMeta.last_backup_at || null,
+        backupStatus: localMeta.backup_status || 'IDLE',
+      });
+      return;
     }
 
     set({ isConfigured: false, vaultMetadata: null, deletionState: 'ACTIVE' });
@@ -191,8 +196,8 @@ export const useLockerStore = create<LockerState>((set, get) => ({
         updated_at: new Date().toISOString(),
       };
 
-      // 1. Always persist to local cache for instant unlock reliability
-      localStorage.setItem(`ourspace_vault_meta_${userId}`, JSON.stringify(metadata));
+      // 1. Always persist to IndexedDB + local cache for instant unlock reliability
+      await saveVaultMetadata(userId, metadata);
 
       // 2. Sync to Firestore if configured
       if (isFirebaseConfigured()) {
@@ -277,22 +282,17 @@ export const useLockerStore = create<LockerState>((set, get) => ({
       activeSessionKey = resolvedKey;
 
       // Fetch and decrypt items
-      // Fetch and merge items from both local cache and Firestore
+      // Fetch and merge items from high-capacity IndexedDB and Firestore
       const decryptedList: DecryptedLockerItem[] = [];
       const itemsMap = new Map<string, EncryptedLockerItem>();
 
-      // 1. Load local items first for offline resiliency
-      const localItems = localStorage.getItem(`ourspace_vault_items_${userId}`);
-      if (localItems) {
-        try {
-          const encList = JSON.parse(localItems) as EncryptedLockerItem[];
-          for (const item of encList) {
-            if (item && item.id) itemsMap.set(item.id, item);
-          }
-        } catch {}
+      // 1. Load local items from IndexedDB (supports photos, videos, files without quota limits)
+      const localItems = await getVaultItems(userId);
+      for (const item of localItems) {
+        if (item && item.id) itemsMap.set(item.id, item);
       }
 
-      // 2. Load Firestore items if configured
+      // 2. Load Firestore items if configured and merge
       if (isFirebaseConfigured()) {
         try {
           const db = getFirebaseFirestore();
@@ -300,13 +300,11 @@ export const useLockerStore = create<LockerState>((set, get) => ({
           const snap = await getDocs(itemsColl);
           for (const docSnap of snap.docs) {
             const itemData = docSnap.data() as EncryptedLockerItem;
-            itemsMap.set(docSnap.id, { ...itemData, id: docSnap.id });
+            if (!itemsMap.has(docSnap.id)) {
+              itemsMap.set(docSnap.id, { ...itemData, id: docSnap.id });
+              await saveVaultItem(userId, { ...itemData, id: docSnap.id });
+            }
           }
-          // Sync merged items to local cache
-          localStorage.setItem(
-            `ourspace_vault_items_${userId}`,
-            JSON.stringify(Array.from(itemsMap.values()))
-          );
         } catch (err) {
           console.warn('[Locker] Firestore items fetch deferred, using cached items:', err);
         }
@@ -376,31 +374,49 @@ export const useLockerStore = create<LockerState>((set, get) => ({
 
       activeSessionKey = masterKey;
 
-      // Decrypt items
+      // Decrypt items from both IndexedDB and Firestore
       const decryptedList: DecryptedLockerItem[] = [];
+      const itemsMap = new Map<string, EncryptedLockerItem>();
+
+      const localItems = await getVaultItems(userId);
+      for (const item of localItems) {
+        if (item && item.id) itemsMap.set(item.id, item);
+      }
+
       if (isFirebaseConfigured()) {
-        const db = getFirebaseFirestore();
-        const snap = await getDocs(collection(db, 'users', userId, 'personalVault', 'default', 'items'));
-        for (const docSnap of snap.docs) {
-          const itemData = docSnap.data() as EncryptedLockerItem;
-          try {
-            const title = await decryptPayload(itemData.title_ciphertext, itemData.iv, masterKey);
-            const payloadIv = (itemData as any).payload_iv || itemData.iv;
-            const payload = await decryptPayload(itemData.payload_ciphertext, payloadIv, masterKey);
-            decryptedList.push({
-              id: docSnap.id,
-              section: itemData.section,
-              folder_id: itemData.folder_id || null,
-              title,
-              payload,
-              is_favourite: itemData.is_favourite || false,
-              is_archived: itemData.is_archived || false,
-              created_at: itemData.created_at,
-              updated_at: itemData.updated_at,
-            });
-          } catch (itemErr) {
-            console.warn('[Locker] Recovery unlock skipping corrupted item:', docSnap.id, itemErr);
+        try {
+          const db = getFirebaseFirestore();
+          const snap = await getDocs(collection(db, 'users', userId, 'personalVault', 'default', 'items'));
+          for (const docSnap of snap.docs) {
+            const itemData = docSnap.data() as EncryptedLockerItem;
+            if (!itemsMap.has(docSnap.id)) {
+              itemsMap.set(docSnap.id, { ...itemData, id: docSnap.id });
+              await saveVaultItem(userId, { ...itemData, id: docSnap.id });
+            }
           }
+        } catch (err) {
+          console.warn('[Locker] Recovery unlock Firestore read deferred:', err);
+        }
+      }
+
+      for (const itemData of itemsMap.values()) {
+        try {
+          const title = await decryptPayload(itemData.title_ciphertext, itemData.iv, masterKey);
+          const payloadIv = (itemData as any).payload_iv || itemData.iv;
+          const payload = await decryptPayload(itemData.payload_ciphertext, payloadIv, masterKey);
+          decryptedList.push({
+            id: itemData.id,
+            section: itemData.section,
+            folder_id: itemData.folder_id || null,
+            title,
+            payload,
+            is_favourite: itemData.is_favourite || false,
+            is_archived: itemData.is_archived || false,
+            created_at: itemData.created_at,
+            updated_at: itemData.updated_at,
+          });
+        } catch (itemErr) {
+          console.warn('[Locker] Recovery unlock skipping corrupted item:', itemData.id, itemErr);
         }
       }
 
@@ -470,11 +486,14 @@ export const useLockerStore = create<LockerState>((set, get) => ({
       };
 
       if (isFirebaseConfigured()) {
-        const db = getFirebaseFirestore();
-        await updateDoc(doc(db, 'users', userId, 'personalVault', 'default'), updatedMetadata as any);
-      } else {
-        localStorage.setItem(`ourspace_vault_meta_${userId}`, JSON.stringify(updatedMetadata));
+        try {
+          const db = getFirebaseFirestore();
+          await updateDoc(doc(db, 'users', userId, 'personalVault', 'default'), updatedMetadata as any);
+        } catch (err) {
+          console.warn('[Locker] Firestore password change metadata write deferred:', err);
+        }
       }
+      await saveVaultMetadata(userId, updatedMetadata);
 
       activeSessionKey = masterKey;
       set({ vaultMetadata: updatedMetadata, isProcessing: false });
@@ -524,22 +543,30 @@ export const useLockerStore = create<LockerState>((set, get) => ({
         updated_at: createdAt,
       };
 
-      // 1. Always persist to local cache first
-      const raw = localStorage.getItem(`ourspace_vault_items_${userId}`);
-      const existing = raw ? JSON.parse(raw) : [];
-      const existingIdx = existing.findIndex((e: EncryptedLockerItem) => e.id === itemId);
-      if (existingIdx >= 0) {
-        existing[existingIdx] = encItem;
-      } else {
-        existing.push(encItem);
-      }
-      localStorage.setItem(`ourspace_vault_items_${userId}`, JSON.stringify(existing));
+      // 1. Primary: Save to high-capacity IndexedDB (handles photos, videos, files without quota limits)
+      await saveVaultItem(userId, encItem);
 
       // 2. Sync to Firestore if configured
+      // Firestore enforces a 1MB per document ceiling (1,048,576 bytes).
+      // For payloads under 800KB, sync the full encrypted item to Firestore.
+      // For large media (>800KB), store a placeholder in Firestore while keeping the full encrypted item in IndexedDB.
       if (isFirebaseConfigured()) {
         try {
           const db = getFirebaseFirestore();
-          await setDoc(doc(db, 'users', userId, 'personalVault', 'default', 'items', itemId), encItem);
+          if (encryptedBody.ciphertext.length < 800 * 1024) {
+            await setDoc(doc(db, 'users', userId, 'personalVault', 'default', 'items', itemId), encItem);
+          } else {
+            const stubBody = await encryptPayload(
+              { body: item.payload?.body || '', secret: item.payload?.secret, hasLocalMedia: true },
+              activeSessionKey,
+              itemIv
+            );
+            const stubItem: EncryptedLockerItem = {
+              ...encItem,
+              payload_ciphertext: stubBody.ciphertext,
+            };
+            await setDoc(doc(db, 'users', userId, 'personalVault', 'default', 'items', itemId), stubItem);
+          }
         } catch (err) {
           console.warn('[Locker] Firestore item write deferred:', err);
         }
@@ -565,12 +592,8 @@ export const useLockerStore = create<LockerState>((set, get) => ({
   },
 
   deleteLockerItem: async (userId, itemId) => {
-    // 1. Always remove from local cache
-    const raw = localStorage.getItem(`ourspace_vault_items_${userId}`);
-    if (raw) {
-      const list = (JSON.parse(raw) as EncryptedLockerItem[]).filter((i) => i.id !== itemId);
-      localStorage.setItem(`ourspace_vault_items_${userId}`, JSON.stringify(list));
-    }
+    // 1. Remove from IndexedDB and local storage
+    await deleteVaultItem(userId, itemId);
 
     // 2. Remove from Firestore if configured
     if (isFirebaseConfigured()) {
@@ -589,13 +612,13 @@ export const useLockerStore = create<LockerState>((set, get) => ({
     if (!item) return;
     const newFav = !item.is_favourite;
 
-    // Update local cache
-    const raw = localStorage.getItem(`ourspace_vault_items_${userId}`);
-    if (raw) {
-      const list = (JSON.parse(raw) as EncryptedLockerItem[]).map((i) =>
-        i.id === itemId ? { ...i, is_favourite: newFav, updated_at: new Date().toISOString() } : i
-      );
-      localStorage.setItem(`ourspace_vault_items_${userId}`, JSON.stringify(list));
+    // Update in IndexedDB
+    const existing = await getVaultItems(userId);
+    const target = existing.find((i) => i.id === itemId);
+    if (target) {
+      target.is_favourite = newFav;
+      target.updated_at = new Date().toISOString();
+      await saveVaultItem(userId, target);
     }
 
     if (isFirebaseConfigured()) {
@@ -617,13 +640,13 @@ export const useLockerStore = create<LockerState>((set, get) => ({
     if (!item) return;
     const newArch = !item.is_archived;
 
-    // Update local cache
-    const raw = localStorage.getItem(`ourspace_vault_items_${userId}`);
-    if (raw) {
-      const list = (JSON.parse(raw) as EncryptedLockerItem[]).map((i) =>
-        i.id === itemId ? { ...i, is_archived: newArch, updated_at: new Date().toISOString() } : i
-      );
-      localStorage.setItem(`ourspace_vault_items_${userId}`, JSON.stringify(list));
+    // Update in IndexedDB
+    const existing = await getVaultItems(userId);
+    const target = existing.find((i) => i.id === itemId);
+    if (target) {
+      target.is_archived = newArch;
+      target.updated_at = new Date().toISOString();
+      await saveVaultItem(userId, target);
     }
 
     if (isFirebaseConfigured()) {
@@ -795,7 +818,7 @@ export const useLockerStore = create<LockerState>((set, get) => ({
       activeSessionKey = null;
       if (autoLockTimer) clearTimeout(autoLockTimer);
 
-      // 2. FIREBASE_PURGING
+      // 2. FIREBASE_PURGING & LOCAL STORAGE PURGE
       set({ deletionState: 'FIREBASE_PURGING', deletionProgressMessage: 'Purging Firebase encrypted items, documents, and records...' });
       if (isFirebaseConfigured()) {
         const db = getFirebaseFirestore();
@@ -804,9 +827,8 @@ export const useLockerStore = create<LockerState>((set, get) => ({
         for (const docSnap of snap.docs) {
           await deleteDoc(docSnap.ref);
         }
-      } else {
-        localStorage.removeItem(`ourspace_vault_items_${userId}`);
       }
+      await clearVaultStorage(userId);
 
       // 3. DRIVE_PURGING (Purge all encrypted cloud backup snapshots)
       set({ deletionState: 'DRIVE_PURGING', deletionProgressMessage: 'Purging all encrypted Google Drive and cloud backup snapshots...' });
@@ -818,9 +840,8 @@ export const useLockerStore = create<LockerState>((set, get) => ({
         const db = getFirebaseFirestore();
         const metaRef = doc(db, 'users', userId, 'personalVault', 'default');
         await deleteDoc(metaRef);
-      } else {
-        localStorage.removeItem(`ourspace_vault_meta_${userId}`);
       }
+      await clearVaultStorage(userId);
 
       // 5. VERIFYING_ALL_LOCATIONS
       set({ deletionState: 'VERIFYING_ALL_LOCATIONS', deletionProgressMessage: 'Verifying zero remaining records across cloud and local storage...' });

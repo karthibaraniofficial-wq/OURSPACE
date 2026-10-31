@@ -26,17 +26,25 @@ export function hexToBuffer(hex: string): Uint8Array {
   return bytes;
 }
 
-// Utility: ArrayBuffer <-> Base64 string
+// Utility: ArrayBuffer <-> Base64 string (chunked for large files/photos/videos)
 export function bufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
   let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chunkSize = 32768;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
   }
   return btoa(binary);
 }
 
 export function base64ToBuffer(base64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(base64, 'base64'));
+  }
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
@@ -229,7 +237,7 @@ export async function deriveWrappingKey(passphraseOrRecovery: string, saltHex: s
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
-    false,
+    true, // extractable: true so subtle.exportKey can compute key verifier
     ['encrypt', 'decrypt']
   );
 }

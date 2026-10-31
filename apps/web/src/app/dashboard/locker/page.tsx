@@ -45,7 +45,8 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
 
-const SECTIONS: { id: LockerSection; label: string; icon: any; countKey?: string }[] = [
+const SECTIONS: { id: LockerSection | 'all'; label: string; icon: any; countKey?: string }[] = [
+  { id: 'all', label: 'All Stored Items', icon: Star },
   { id: 'notes', label: 'Private Notes', icon: FileText },
   { id: 'personal_details', label: 'Personal Details', icon: CreditCard },
   { id: 'documents', label: 'Private Documents', icon: FolderLock },
@@ -92,6 +93,7 @@ export default function LockerPage() {
     resetAndEraseLocker,
   } = useLockerStore();
 
+  const [activeCategory, setActiveCategory] = useState<LockerSection | 'all'>('all');
   const [password, setPassword] = useState('');
   const [recoveryKeyInput, setRecoveryKeyInput] = useState('');
   const [isRecoveryUnlock, setIsRecoveryUnlock] = useState(false);
@@ -101,6 +103,7 @@ export default function LockerPage() {
 
   // New Item Modal
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
+  const [itemSection, setItemSection] = useState<LockerSection>('notes');
   const [itemTitle, setItemTitle] = useState('');
   const [itemContent, setItemContent] = useState('');
   const [extraSecret, setExtraSecret] = useState('');
@@ -111,6 +114,8 @@ export default function LockerPage() {
     dataUrl: string;
   } | null>(null);
   const [isReadingFile, setIsReadingFile] = useState(false);
+  const [createItemError, setCreateItemError] = useState('');
+  const [isSavingItem, setIsSavingItem] = useState(false);
 
   // Backup Management Modal
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
@@ -213,9 +218,13 @@ export default function LockerPage() {
   const handleCreateItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!itemTitle.trim() || !user?.id) return;
+    setCreateItemError('');
+    setIsSavingItem(true);
 
-    await createLockerItem(user.id, {
-      section: selectedSection,
+    const sectionToUse: LockerSection = itemSection || (activeCategory === 'all' ? 'notes' : activeCategory);
+
+    const res = await createLockerItem(user.id, {
+      section: sectionToUse,
       title: itemTitle.trim(),
       payload: {
         body: itemContent.trim(),
@@ -224,6 +233,12 @@ export default function LockerPage() {
         createdAt: new Date().toISOString(),
       },
     });
+
+    setIsSavingItem(false);
+    if (!res.success) {
+      setCreateItemError(res.error || 'Failed to encrypt and store item in vault.');
+      return;
+    }
 
     setItemTitle('');
     setItemContent('');
@@ -316,7 +331,7 @@ export default function LockerPage() {
   };
 
   const filteredItems = items.filter((item) => {
-    if (item.section !== selectedSection) return false;
+    if (activeCategory !== 'all' && item.section !== activeCategory) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const inTitle = item.title.toLowerCase().includes(q);
@@ -618,12 +633,12 @@ export default function LockerPage() {
           </span>
           {SECTIONS.map((sec) => {
             const Icon = sec.icon;
-            const isSelected = selectedSection === sec.id;
-            const count = items.filter((i) => i.section === sec.id).length;
+            const isSelected = activeCategory === sec.id;
+            const count = sec.id === 'all' ? items.length : items.filter((i) => i.section === sec.id).length;
             return (
               <button
                 key={sec.id}
-                onClick={() => setSelectedSection(sec.id)}
+                onClick={() => setActiveCategory(sec.id)}
                 className={cn(
                   'flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all',
                   isSelected
@@ -675,7 +690,7 @@ export default function LockerPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={`Search in ${SECTIONS.find((s) => s.id === selectedSection)?.label}...`}
+                placeholder={`Search in ${SECTIONS.find((s) => s.id === activeCategory)?.label || 'All Items'}...`}
                 className="w-full rounded-2xl glass-input pl-10 pr-4 py-2 text-xs text-stone-800 dark:text-zinc-100 focus:outline-none"
               />
             </div>
@@ -687,10 +702,10 @@ export default function LockerPage() {
                 <FolderLock className="w-6 h-6" />
               </div>
               <h3 className="text-sm font-bold text-stone-800 dark:text-zinc-200">
-                No items in {SECTIONS.find((s) => s.id === selectedSection)?.label}
+                No items in {SECTIONS.find((s) => s.id === activeCategory)?.label || 'All Items'}
               </h3>
               <p className="text-xs text-stone-400 max-w-xs mt-1">
-                Keep sensitive notes, private credentials, or love letters securely encrypted.
+                Keep sensitive notes, private credentials, photos, videos, or love letters securely encrypted.
               </p>
               <Button
                 variant="primary"
@@ -709,9 +724,14 @@ export default function LockerPage() {
                   className="rounded-3xl p-5 glass-card border border-rose-200/60 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative group"
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <h4 className="text-sm font-bold text-stone-900 dark:text-zinc-100 truncate">
-                      {item.title}
-                    </h4>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider">
+                        {SECTIONS.find((s) => s.id === item.section)?.label || item.section}
+                      </span>
+                      <h4 className="text-sm font-bold text-stone-900 dark:text-zinc-100 truncate mt-0.5">
+                        {item.title}
+                      </h4>
+                    </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => user?.id && toggleFavourite(user.id, item.id)}
@@ -940,9 +960,26 @@ export default function LockerPage() {
       <Modal
         isOpen={isItemModalOpen}
         onClose={() => setIsItemModalOpen(false)}
-        title={`New Secret ${SECTIONS.find((s) => s.id === selectedSection)?.label}`}
+        title="New Encrypted Vault Item"
       >
         <form onSubmit={handleCreateItem} className="flex flex-col gap-4 text-xs">
+          <div>
+            <label className="block font-semibold mb-1 text-stone-700 dark:text-zinc-200">
+              Vault Category
+            </label>
+            <select
+              value={itemSection}
+              onChange={(e) => setItemSection(e.target.value as LockerSection)}
+              className="w-full rounded-2xl glass-input p-2.5 text-xs text-stone-800 dark:text-zinc-100 focus:outline-none bg-white/80 dark:bg-zinc-900/80 border border-rose-200"
+            >
+              {SECTIONS.filter((s) => s.id !== 'all').map((s) => (
+                <option key={s.id} value={s.id} className="bg-white dark:bg-zinc-900 text-stone-800 dark:text-zinc-100">
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <Input
             label="Title / Identifier"
             placeholder="e.g. WiFi Password, Apartment Key Code, Private Letter"
@@ -1018,11 +1055,22 @@ export default function LockerPage() {
             )}
           </div>
 
+          {createItemError && (
+            <div className="p-2.5 rounded-xl bg-red-50 text-red-600 text-xs">
+              {createItemError}
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button variant="ghost" type="button" onClick={() => setIsItemModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit" disabled={isReadingFile}>
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={isReadingFile || isSavingItem}
+              isLoading={isSavingItem}
+            >
               Encrypt & Save to Locker
             </Button>
           </div>
