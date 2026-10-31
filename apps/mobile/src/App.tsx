@@ -171,6 +171,7 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.chatScroll}>
               {messages.map((m) => {
                 const isMine = m.sender_id === DEMO_USER_1.id;
+                const hasImage = m.type === 'image' && (m as any).attachment?.signed_url;
                 return (
                   <View
                     key={m.id}
@@ -179,22 +180,114 @@ export default function App() {
                       isMine ? styles.msgMine : styles.msgTheirs,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.msgText,
-                        isMine ? styles.msgTextMine : styles.msgTextTheirs,
-                      ]}
-                    >
-                      {m.content}
-                    </Text>
+                    {hasImage && (
+                      <Image
+                        source={{ uri: (m as any).attachment.signed_url }}
+                        style={styles.chatImagePreview}
+                        resizeMode="cover"
+                      />
+                    )}
+                    {m.content ? (
+                      <Text
+                        style={[
+                          styles.msgText,
+                          isMine ? styles.msgTextMine : styles.msgTextTheirs,
+                        ]}
+                      >
+                        {m.content}
+                      </Text>
+                    ) : null}
                     <Text style={styles.msgTime}>{m.created_at}</Text>
                   </View>
                 );
               })}
             </ScrollView>
 
-            {/* Chat Input */}
+            {/* Chat Input with 3 Separate Media Actions */}
             <View style={styles.inputRow}>
+              {/* 1. Camera Capture Button */}
+              <TouchableOpacity
+                style={styles.mediaActionBtn}
+                onPress={() => {
+                  const newPhotoMsg: Message = {
+                    id: 'm-photo-' + Date.now(),
+                    conversation_id: 'c1',
+                    space_id: DEMO_SPACE.id,
+                    sender_id: DEMO_USER_1.id,
+                    content: 'Captured a moment for you 📸',
+                    type: 'image',
+                    reply_to_id: null,
+                    is_edited: false,
+                    edited_at: null,
+                    deleted_for_all: false,
+                    pinned: false,
+                    created_at: 'Just now',
+                    updated_at: 'Just now',
+                    attachment: {
+                      id: 'att-' + Date.now(),
+                      message_id: 'm-photo-' + Date.now(),
+                      file_name: 'in_app_camera.jpg',
+                      file_size: 1024 * 720,
+                      file_type: 'image/jpeg',
+                      media_category: 'image',
+                      signed_url: 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800&auto=format&fit=crop&q=80',
+                      created_at: new Date().toISOString(),
+                      uploaded_by: DEMO_USER_1.id,
+                    },
+                  } as any;
+                  setMessages((prev) => [...prev, newPhotoMsg]);
+                }}
+                title="Camera"
+              >
+                <Text style={styles.mediaActionIcon}>📷</Text>
+              </TouchableOpacity>
+
+              {/* 2. Gallery Button */}
+              <TouchableOpacity
+                style={styles.mediaActionBtn}
+                onPress={() => {
+                  const newGalleryMsg: Message = {
+                    id: 'm-gal-' + Date.now(),
+                    conversation_id: 'c1',
+                    space_id: DEMO_SPACE.id,
+                    sender_id: DEMO_USER_1.id,
+                    content: 'From our album ❤️',
+                    type: 'image',
+                    reply_to_id: null,
+                    is_edited: false,
+                    edited_at: null,
+                    deleted_for_all: false,
+                    pinned: false,
+                    created_at: 'Just now',
+                    updated_at: 'Just now',
+                    attachment: {
+                      id: 'att-gal-' + Date.now(),
+                      message_id: 'm-gal-' + Date.now(),
+                      file_name: 'gallery_photo.jpg',
+                      file_size: 1024 * 850,
+                      file_type: 'image/jpeg',
+                      media_category: 'image',
+                      signed_url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&auto=format&fit=crop&q=80',
+                      created_at: new Date().toISOString(),
+                      uploaded_by: DEMO_USER_1.id,
+                    },
+                  } as any;
+                  setMessages((prev) => [...prev, newGalleryMsg]);
+                }}
+                title="Gallery"
+              >
+                <Text style={styles.mediaActionIcon}>🖼️</Text>
+              </TouchableOpacity>
+
+              {/* 3. Attachment Button */}
+              <TouchableOpacity
+                style={styles.mediaActionBtn}
+                onPress={() => {}}
+                title="Attachment"
+              >
+                <Text style={styles.mediaActionIcon}>📎</Text>
+              </TouchableOpacity>
+
               <TextInput
                 style={styles.inputField}
                 placeholder="Type a loving message..."
@@ -518,6 +611,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 12,
+  },
+  chatImagePreview: {
+    width: 220,
+    height: 160,
+    borderRadius: 14,
+    marginBottom: 6,
+  },
+  mediaActionBtn: {
+    padding: 6,
+    borderRadius: 16,
+    backgroundColor: '#FFE4E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mediaActionIcon: {
+    fontSize: 16,
   },
   callsContainer: {
     flex: 1,

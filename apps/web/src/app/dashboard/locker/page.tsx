@@ -27,6 +27,11 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  HardDrive,
+  Cloud,
+  CheckCircle2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useLockerStore } from '@/store/useLockerStore';
@@ -60,9 +65,15 @@ export default function LockerPage() {
     deletionState,
     deletionProgressMessage,
     isProcessing,
+    vaultMetadata,
+    backupStatus,
+    lastBackupAt,
+    lastGeneratedRecoveryKey,
     loadVaultMetadata,
     setupLocker,
     unlockLocker,
+    unlockWithRecoveryKey,
+    changeMasterPassword,
     lockLocker,
     setSelectedSection,
     setSearchQuery,
@@ -71,10 +82,15 @@ export default function LockerPage() {
     toggleFavourite,
     toggleArchive,
     exportDecryptedVault,
+    triggerEncryptedBackup,
+    restoreFromBackup,
+    verifyCurrentBackup,
     resetAndEraseLocker,
   } = useLockerStore();
 
   const [password, setPassword] = useState('');
+  const [recoveryKeyInput, setRecoveryKeyInput] = useState('');
+  const [isRecoveryUnlock, setIsRecoveryUnlock] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isSetupMode, setIsSetupMode] = useState(false);
@@ -84,6 +100,23 @@ export default function LockerPage() {
   const [itemTitle, setItemTitle] = useState('');
   const [itemContent, setItemContent] = useState('');
   const [extraSecret, setExtraSecret] = useState('');
+
+  // Backup Management Modal
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [backupActionMessage, setBackupActionMessage] = useState<string | null>(null);
+
+  // Password Change Modal
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [currentSecret, setCurrentSecret] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [passwordChangeSuccess, setPasswordChangeSuccess] = useState(false);
+
+  // Recovery Key Display Modal (Shown right after initial setup)
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+  const [copiedRecoveryKey, setCopiedRecoveryKey] = useState(false);
+  const [recoveryConfirmed, setRecoveryConfirmed] = useState(false);
 
   // Reset Wipe Modal
   const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
@@ -97,20 +130,37 @@ export default function LockerPage() {
 
   const handleUnlockOrSetup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim() || !user?.id) return;
+    if (!user?.id) return;
     setErrorMessage('');
+
+    if (isRecoveryUnlock) {
+      if (!recoveryKeyInput.trim()) return;
+      const res = await unlockWithRecoveryKey(user.id, recoveryKeyInput.trim());
+      if (res.success) {
+        setRecoveryKeyInput('');
+        setIsRecoveryUnlock(false);
+      } else {
+        setErrorMessage(res.error || 'Invalid recovery key.');
+      }
+      return;
+    }
+
+    if (!password.trim()) return;
 
     if (!isConfigured || isSetupMode) {
       if (password.length < 8) {
         setErrorMessage('Vault master password must be at least 8 characters.');
         return;
       }
-      const ok = await setupLocker(user.id, password);
-      if (ok) {
+      const res = await setupLocker(user.id, password);
+      if (res.success) {
         setPassword('');
         setIsSetupMode(false);
+        if (res.recoveryKey) {
+          setIsRecoveryModalOpen(true);
+        }
       } else {
-        setErrorMessage('Could not initialize locker key hierarchy.');
+        setErrorMessage(res.error || 'Could not initialize locker key hierarchy.');
       }
     } else {
       const res = await unlockLocker(user.id, password);
@@ -153,6 +203,68 @@ export default function LockerPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleTriggerBackup = async () => {
+    if (!user?.id) return;
+    setBackupActionMessage('Creating client-side encrypted backup bundle...');
+    const res = await triggerEncryptedBackup(user.id);
+    if (res.success) {
+      setBackupActionMessage(`Encrypted backup created & verified with SHA-256 hash.`);
+    } else {
+      setBackupActionMessage(`Backup failed: ${res.error}`);
+    }
+  };
+
+  const handleVerifyBackup = async () => {
+    if (!user?.id) return;
+    setBackupActionMessage('Verifying ciphertext authenticity and SHA-256 hashes...');
+    const res = await verifyCurrentBackup(user.id);
+    if (res.success && res.isVerified) {
+      setBackupActionMessage('All ciphertext items matched their SHA-256 manifest hash.');
+    } else {
+      setBackupActionMessage(`Verification failed: ${res.error || 'Mismatch detected'}`);
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    if (!user?.id) return;
+    setBackupActionMessage('Restoring and decrypting backup items locally...');
+    const res = await restoreFromBackup(user.id);
+    if (res.success) {
+      setBackupActionMessage(`Restored ${res.itemCount} items from encrypted cloud backup.`);
+    } else {
+      setBackupActionMessage(`Restore failed: ${res.error}`);
+    }
+  };
+
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.id) return;
+    setPasswordChangeError('');
+
+    if (newPassword.length < 8) {
+      setPasswordChangeError('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordChangeError('New passwords do not match.');
+      return;
+    }
+
+    const res = await changeMasterPassword(user.id, currentSecret, newPassword);
+    if (res.success) {
+      setPasswordChangeSuccess(true);
+      setCurrentSecret('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setTimeout(() => {
+        setIsChangePasswordOpen(false);
+        setPasswordChangeSuccess(false);
+      }, 1800);
+    } else {
+      setPasswordChangeError(res.error || 'Password change failed.');
+    }
+  };
+
   const handleExecuteWipe = async () => {
     if (!user?.id) return;
     const res = await resetAndEraseLocker(user.id, wipeConfirmText);
@@ -181,7 +293,6 @@ export default function LockerPage() {
     return (
       <div className="max-w-md mx-auto my-auto min-h-[70vh] flex flex-col items-center justify-center p-4">
         <div className="w-full glass-card rounded-3xl p-8 border border-rose-200/60 dark:border-purple-900/40 shadow-2xl relative overflow-hidden text-center">
-          {/* Subtle Ambient Glow */}
           <div className="absolute -top-12 -right-12 w-32 h-32 bg-rose-400/20 rounded-full blur-2xl" />
           <div className="absolute -bottom-12 -left-12 w-32 h-32 bg-purple-400/20 rounded-full blur-2xl" />
 
@@ -195,32 +306,53 @@ export default function LockerPage() {
           </h2>
           <p className="text-xs text-stone-500 dark:text-zinc-400 mt-1 mb-6">
             {isConfigured && !isSetupMode
-              ? 'Zero-Knowledge Encrypted Sanctuary. AES-GCM 256-bit.'
+              ? 'Zero-Knowledge Encrypted Sanctuary. AES-GCM 256-bit with Google Drive Backup.'
               : 'Set a master password to initialize your client-side cryptographic key.'}
           </p>
 
           <form onSubmit={handleUnlockOrSetup} className="flex flex-col gap-4 text-left">
-            <div className="relative">
-              <Input
-                label={isConfigured && !isSetupMode ? 'Master Vault Password' : 'New Master Password'}
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Enter private key password..."
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-8 text-stone-400 hover:text-stone-600"
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
+            {isRecoveryUnlock ? (
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-stone-700 dark:text-zinc-300">
+                  Enter 256-Bit Recovery Key
+                </label>
+                <Input
+                  type="text"
+                  placeholder="RCV-XXXX-XXXX-XXXX-..."
+                  value={recoveryKeyInput}
+                  onChange={(e) => setRecoveryKeyInput(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-stone-700 dark:text-zinc-300">
+                  {isConfigured && !isSetupMode ? 'Master Vault Password' : 'New Master Password (min 8 chars)'}
+                </label>
+                <div className="relative">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoFocus
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3 text-stone-400 hover:text-rose-500"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {errorMessage && (
-              <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 text-red-600 text-xs flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 shrink-0" />
+              <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}
@@ -231,23 +363,36 @@ export default function LockerPage() {
               className="w-full mt-2"
               isLoading={isProcessing}
             >
-              <KeyRound className="w-4 h-4 mr-2" />
-              {isConfigured && !isSetupMode ? 'Unlock Secure Vault' : 'Initialize Vault Key'}
+              {isRecoveryUnlock
+                ? 'Unlock with Recovery Key'
+                : isConfigured && !isSetupMode
+                ? 'Unlock Vault'
+                : 'Initialize Encrypted Locker'}
             </Button>
-          </form>
 
-          {/* Destructive Reset Route */}
-          {isConfigured && (
-            <div className="mt-8 pt-4 border-t border-rose-100/60 dark:border-zinc-800 text-center">
-              <button
-                onClick={() => setIsWipeModalOpen(true)}
-                className="text-[11px] font-semibold text-rose-500 hover:text-red-600 hover:underline transition-colors flex items-center justify-center gap-1 mx-auto"
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Forgot password? Reset Locker & Erase All Data</span>
-              </button>
-            </div>
-          )}
+            {isConfigured && !isSetupMode && (
+              <div className="flex items-center justify-between pt-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRecoveryUnlock(!isRecoveryUnlock);
+                    setErrorMessage('');
+                  }}
+                  className="text-rose-500 hover:underline font-semibold"
+                >
+                  {isRecoveryUnlock ? '← Use Master Password' : 'Lost Password? Use Recovery Key'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsWipeModalOpen(true)}
+                  className="text-stone-400 hover:text-red-500 transition-colors"
+                >
+                  Reset Vault
+                </button>
+              </div>
+            )}
+          </form>
         </div>
 
         {/* Wipe Modal */}
@@ -262,16 +407,14 @@ export default function LockerPage() {
               <div>
                 <p className="font-bold">Irreversible Destructive Operation</p>
                 <p className="mt-1">
-                  This action will permanently delete all information stored in your locker. Existing encrypted
-                  files, private documents, photographs, and records will become unrecoverable. You cannot undo this
-                  operation.
+                  This action will permanently delete all information stored in your locker and all Google Drive
+                  encrypted backup snapshots.
                 </p>
               </div>
             </div>
 
             <p>
-              To confirm that you want to permanently erase your encrypted locker, please type{' '}
-              <strong className="text-red-600">DELETE MY LOCKER</strong> below:
+              To confirm, type <strong className="text-red-600">DELETE MY LOCKER</strong> below:
             </p>
 
             <Input
@@ -301,6 +444,67 @@ export default function LockerPage() {
             </div>
           </div>
         </Modal>
+
+        {/* Recovery Key Display Modal */}
+        <Modal
+          isOpen={isRecoveryModalOpen}
+          onClose={() => {
+            if (recoveryConfirmed) setIsRecoveryModalOpen(false);
+          }}
+          title="YOUR LOCKER RECOVERY KEY"
+        >
+          <div className="flex flex-col gap-4 text-xs text-stone-700 dark:text-zinc-200">
+            <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 flex items-start gap-2.5">
+              <ShieldCheck className="w-5 h-5 shrink-0 text-rose-600 mt-0.5" />
+              <div>
+                <p className="font-bold">Save This Key Offline</p>
+                <p className="mt-0.5">
+                  OURSPACE uses zero-knowledge encryption. If you lose your master password, this 256-bit recovery
+                  key is the <strong>only way</strong> to restore your encrypted locker.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-stone-900 text-rose-400 font-mono text-sm tracking-wider text-center select-all break-all border border-rose-500/30">
+              {lastGeneratedRecoveryKey}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (lastGeneratedRecoveryKey) {
+                  navigator.clipboard.writeText(lastGeneratedRecoveryKey);
+                  setCopiedRecoveryKey(true);
+                  setTimeout(() => setCopiedRecoveryKey(false), 2500);
+                }
+              }}
+              className="py-2.5 px-4 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold flex items-center justify-center gap-2 transition-colors"
+            >
+              {copiedRecoveryKey ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedRecoveryKey ? 'Copied to Clipboard!' : 'Copy Recovery Key'}</span>
+            </button>
+
+            <label className="flex items-center gap-2 text-xs cursor-pointer select-none mt-2">
+              <input
+                type="checkbox"
+                checked={recoveryConfirmed}
+                onChange={(e) => setRecoveryConfirmed(e.target.checked)}
+                className="rounded border-rose-300 text-rose-500 focus:ring-rose-400"
+              />
+              <span>I have securely saved my recovery key in a safe place.</span>
+            </label>
+
+            <div className="flex justify-end pt-2">
+              <Button
+                variant="primary"
+                disabled={!recoveryConfirmed}
+                onClick={() => setIsRecoveryModalOpen(false)}
+              >
+                Proceed to Locker
+              </Button>
+            </div>
+          </div>
+        </Modal>
       </div>
     );
   }
@@ -322,8 +526,14 @@ export default function LockerPage() {
                 OUR LOCKER
               </h2>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300/40">
-                AES-GCM 256 Decrypted
+                AES-GCM 256 Active
               </span>
+              {backupStatus === 'VERIFIED' && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300/40 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-purple-600" />
+                  Drive Verified
+                </span>
+              )}
             </div>
             <p className="text-xs text-stone-500 dark:text-zinc-400">
               Session key held in memory. Auto-locks after 5 minutes of inactivity.
@@ -332,6 +542,16 @@ export default function LockerPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsBackupModalOpen(true)}
+            title="Google Drive Cloud Encrypted Backup"
+          >
+            <Cloud className="w-3.5 h-3.5 mr-1.5 text-rose-500" />
+            Cloud Backup
+          </Button>
+
           <Button variant="secondary" size="sm" onClick={handleExport} title="Download Decrypted JSON">
             <Download className="w-3.5 h-3.5 mr-1.5" />
             Export Data
@@ -387,7 +607,15 @@ export default function LockerPage() {
             );
           })}
 
-          <div className="mt-4 pt-3 border-t border-rose-100/60 dark:border-zinc-800 px-1">
+          <div className="mt-4 pt-3 border-t border-rose-100/60 dark:border-zinc-800 px-1 flex flex-col gap-1">
+            <button
+              onClick={() => setIsChangePasswordOpen(true)}
+              className="w-full text-left text-[11px] font-semibold text-stone-600 dark:text-zinc-300 hover:text-rose-600 py-1.5 px-2 rounded-xl hover:bg-rose-50 dark:hover:bg-zinc-800 transition-colors flex items-center gap-2"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Change Master Password</span>
+            </button>
+
             <button
               onClick={() => setIsWipeModalOpen(true)}
               className="w-full text-left text-[11px] font-bold text-red-500 hover:text-red-700 py-1.5 px-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors flex items-center gap-2"
@@ -400,7 +628,6 @@ export default function LockerPage() {
 
         {/* Section Items Grid */}
         <div className="md:col-span-3 flex flex-col gap-4">
-          {/* Search bar inside section */}
           <div className="flex items-center gap-3">
             <div className="flex-1 relative">
               <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
@@ -488,6 +715,146 @@ export default function LockerPage() {
         </div>
       </div>
 
+      {/* Cloud Backup Management Modal */}
+      <Modal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        title="GOOGLE DRIVE ENCRYPTED BACKUP"
+      >
+        <div className="flex flex-col gap-4 text-xs text-stone-700 dark:text-zinc-200">
+          <div className="p-3.5 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-200 flex items-start gap-3">
+            <Cloud className="w-5 h-5 shrink-0 text-purple-600 mt-0.5" />
+            <div>
+              <p className="font-bold">Zero-Knowledge Cloud Backup</p>
+              <p className="mt-0.5 leading-relaxed">
+                Your locker is encrypted locally with AES-256-GCM before leaving this device. Google Drive and
+                Firebase receive <strong>only ciphertext and opaque identifiers</strong>.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-1.5 font-mono text-[11px]">
+            <div className="flex justify-between">
+              <span className="text-stone-500">Target Folder:</span>
+              <span className="text-stone-800 dark:text-zinc-200 font-bold truncate max-w-xs">
+                OURSPACE_ARCHIVE/SECURE_LOCKER_BACKUPS/
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-500">Backup Status:</span>
+              <span className={cn('font-bold', backupStatus === 'VERIFIED' ? 'text-emerald-600' : 'text-amber-600')}>
+                {backupStatus}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-500">Last Verified Backup:</span>
+              <span className="text-stone-800 dark:text-zinc-200">
+                {lastBackupAt ? new Date(lastBackupAt).toLocaleString() : 'No backup yet'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-500">Encrypted Items in Vault:</span>
+              <span className="text-stone-800 dark:text-zinc-200 font-bold">{items.length} items</span>
+            </div>
+          </div>
+
+          {backupActionMessage && (
+            <div className="p-2.5 rounded-xl bg-rose-50 text-rose-700 font-medium">
+              {backupActionMessage}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleTriggerBackup}
+              isLoading={isProcessing}
+            >
+              Back Up Now
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleVerifyBackup}
+              isLoading={isProcessing}
+            >
+              Verify Integrity
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleRestoreBackup}
+              isLoading={isProcessing}
+            >
+              Restore from Backup
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Change Password Modal */}
+      <Modal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        title="CHANGE MASTER VAULT PASSWORD"
+      >
+        <form onSubmit={handleChangePasswordSubmit} className="flex flex-col gap-4 text-xs">
+          <p className="text-stone-500 dark:text-zinc-400">
+            Re-wraps your 256-bit locker master key. Existing encrypted notes and backups remain valid without data loss.
+          </p>
+
+          <Input
+            label="Current Master Password"
+            type="password"
+            placeholder="••••••••••••"
+            value={currentSecret}
+            onChange={(e) => setCurrentSecret(e.target.value)}
+            required
+          />
+
+          <Input
+            label="New Master Password (min 8 chars)"
+            type="password"
+            placeholder="••••••••••••"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+          />
+
+          <Input
+            label="Confirm New Master Password"
+            type="password"
+            placeholder="••••••••••••"
+            value={confirmNewPassword}
+            onChange={(e) => setConfirmNewPassword(e.target.value)}
+            required
+          />
+
+          {passwordChangeError && (
+            <div className="p-2.5 rounded-xl bg-red-50 text-red-600">
+              {passwordChangeError}
+            </div>
+          )}
+
+          {passwordChangeSuccess && (
+            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700 font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Password updated and master key re-wrapped successfully!</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="ghost" type="button" onClick={() => setIsChangePasswordOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" isLoading={isProcessing}>
+              Update Password
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
       {/* New Item Modal */}
       <Modal
         isOpen={isItemModalOpen}
@@ -548,16 +915,13 @@ export default function LockerPage() {
             <div>
               <p className="font-bold">Irreversible Destructive Operation</p>
               <p className="mt-1">
-                This action will permanently delete all information stored in your locker. Existing encrypted
-                files, private documents, photographs, and records will become unrecoverable. You cannot undo this
-                operation.
+                Permanently deletes all locker items and Google Drive encrypted backups.
               </p>
             </div>
           </div>
 
           <p>
-            To confirm that you want to permanently erase your encrypted locker, please type{' '}
-            <strong className="text-red-600">DELETE MY LOCKER</strong> below:
+            Type <strong className="text-red-600">DELETE MY LOCKER</strong> below:
           </p>
 
           <Input

@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.1] - 2026-10-31
+### Added
+- **In-App Camera & Instant Photo Capture**:
+  - Added 3 separate dedicated buttons to chat composer: Camera (capture fresh photo), Gallery (select existing photo), and Attachment (select documents/videos).
+  - Built-in `InAppCameraModal.tsx`: Real-time browser and native camera capture via `navigator.mediaDevices.getUserMedia()`, supporting camera flip (front/rear), torch toggle, native resolution capture, photo preview, retake, and confirmation.
+  - Zero base64 payload guarantee: Uploads original and thumbnail photos via Firebase Storage resumable upload, saving metadata only in Firestore documents.
+- **OUR LOCKER: Key Hierarchy & Wrapping Engine**:
+  - Implemented 256-bit AES-GCM Master Key generated strictly on-device.
+  - PBKDF2 100,000-iteration key wrapping with unique salt and IV.
+  - High-entropy recovery key (`RCV-XXXX-XXXX-XXXX-...`) with dedicated wrapping envelope.
+  - Safe master password rotation: Re-wraps master key without re-encrypting existing vault records or backup snapshots.
+- **Google Drive Encrypted Cloud Backup & Recovery**:
+  - Client-side encrypted backup snapshots stored in `OURSPACE_ARCHIVE/SECURE_LOCKER_BACKUPS/{opaqueVaultId}/`.
+  - Zero plaintext leakage: Only opaque identifiers and AES-GCM ciphertext reach Google Drive and Firebase.
+  - Cryptographic verification: Validates bundle authenticity with SHA-256 ciphertext hash against the encrypted manifest.
+  - Multi-device recovery via Master Password or Recovery Key.
+- **Locker Deletion State Machine**:
+  - Strict 7-phase deletion: `ACTIVE` -> `LOCKED_FOR_DELETION` -> `FIREBASE_PURGING` -> `DRIVE_PURGING` -> `METADATA_PURGING` -> `VERIFYING_ALL_LOCATIONS` -> `OLD_KEYS_DESTROYED` -> `READY_FOR_NEW_LOCKER`.
+  - Requires confirmation phrase `"DELETE MY LOCKER"` and verifies zero residual records across all cloud and local storage locations.
+- **Automated Verification**:
+  - Added `tests/camera_and_locker_backup.test.mjs` (64/64 tests passing across 22 test suites).
+
 ## [2.3.1] - 2026-10-31
 ### Fixed
 - **LiveKit Audio Calling**:

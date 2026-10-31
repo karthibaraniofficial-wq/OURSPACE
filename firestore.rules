@@ -47,6 +47,11 @@ service cloud.firestore {
           allow read, write: if isUser(uid);
         }
       }
+
+      // Our Locker: Google Drive & Cloud Encrypted Backups
+      match /secureLockerBackups/{backupId} {
+        allow read, write: if isUser(uid);
+      }
     }
 
     // 2. Invitations (Controlled couple pairing)

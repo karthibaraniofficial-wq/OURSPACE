@@ -171,3 +171,129 @@ export async function decryptPayload<T = any>(
   }
 }
 
+/**
+ * Generates a random 256-bit AES-GCM Locker Master Key
+ * Created strictly on the user's device. Never uploaded in plaintext.
+ */
+export async function generateMasterKey(): Promise<CryptoKey> {
+  const subtle = getSubtleCrypto();
+  return await subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true, // extractable so it can be wrapped by the password wrapping key
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Generates a high-entropy recovery key (256 bits formatted as clean readable chunks)
+ * Example: RCV-A1B2-C3D4-E5F6-7890-ABCD-EF01-2345
+ */
+export function generateRecoveryKey(): string {
+  const bytes = generateRandomBytes(32);
+  const hex = bufferToHex(bytes).toUpperCase();
+  const chunks: string[] = ['RCV'];
+  for (let i = 0; i < hex.length; i += 4) {
+    chunks.push(hex.substring(i, i + 4));
+  }
+  return chunks.slice(0, 9).join('-');
+}
+
+/**
+ * Derives a key wrapping key from a password or recovery key using PBKDF2 (100,000 iterations)
+ */
+export async function deriveWrappingKey(passphraseOrRecovery: string, saltHex: string): Promise<CryptoKey> {
+  const subtle = getSubtleCrypto();
+  const encoder = new TextEncoder();
+  const salt = hexToBuffer(saltHex);
+  const normalized = passphraseOrRecovery.trim().replace(/\s+/g, '');
+
+  const keyMaterial = await subtle.importKey(
+    'raw',
+    encoder.encode(normalized),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+
+  return await subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt as unknown as BufferSource,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Securely wraps the locker master key using authenticated AES-GCM
+ */
+export async function wrapMasterKey(
+  masterKey: CryptoKey,
+  wrappingKey: CryptoKey
+): Promise<{ wrappedKey: string; iv: string }> {
+  const subtle = getSubtleCrypto();
+  const rawMaster = await subtle.exportKey('raw', masterKey);
+  const iv = generateRandomBytes(12);
+
+  const encryptedBuffer = await subtle.encrypt(
+    {
+      name: 'AES-GCM',
+      iv: iv as unknown as BufferSource,
+    },
+    wrappingKey,
+    rawMaster
+  );
+
+  return {
+    wrappedKey: bufferToBase64(encryptedBuffer),
+    iv: bufferToHex(iv),
+  };
+}
+
+/**
+ * Securely unwraps the locker master key using authenticated AES-GCM
+ */
+export async function unwrapMasterKey(
+  wrappedKeyBase64: string,
+  ivHex: string,
+  wrappingKey: CryptoKey
+): Promise<CryptoKey> {
+  const subtle = getSubtleCrypto();
+  const iv = hexToBuffer(ivHex);
+  const encryptedBuffer = base64ToBuffer(wrappedKeyBase64);
+
+  const decryptedRaw = await subtle.decrypt(
+    {
+      name: 'AES-GCM',
+      iv: iv as unknown as BufferSource,
+    },
+    wrappingKey,
+    encryptedBuffer as unknown as BufferSource
+  );
+
+  return await subtle.importKey(
+    'raw',
+    decryptedRaw,
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Computes an authenticated SHA-256 integrity hash across a set of ciphertexts
+ */
+export async function computeCiphertextHash(ciphertexts: string[]): Promise<string> {
+  const subtle = getSubtleCrypto();
+  const encoder = new TextEncoder();
+  const sorted = [...ciphertexts].sort();
+  const concatenated = sorted.join('::OURSPACE_CIPHERTEXT_SEPARATOR::');
+  const digestBuffer = await subtle.digest('SHA-256', encoder.encode(concatenated));
+  return bufferToHex(digestBuffer);
+}
+

@@ -267,11 +267,18 @@ export interface AlbumItem {
 
 export type LockerDeletionState =
   | 'ACTIVE'
+  | 'LOCKED_FOR_DELETION'
   | 'WIPE_PENDING'
   | 'PURGING_FILES'
+  | 'FIREBASE_PURGING'
+  | 'DRIVE_PURGING'
   | 'PURGING_METADATA'
+  | 'METADATA_PURGING'
   | 'VERIFYING_DELETION'
+  | 'VERIFYING_ALL_LOCATIONS'
+  | 'OLD_KEYS_DESTROYED'
   | 'READY_FOR_NEW_KEY'
+  | 'READY_FOR_NEW_LOCKER'
   | 'ACTIVE_WITH_NEW_KEY';
 
 export type LockerSection =
@@ -309,6 +316,35 @@ export interface LockerFolder {
   created_at: string;
 }
 
+export type LockerBackupStatus =
+  | 'IDLE'
+  | 'BACKING_UP'
+  | 'VERIFIED'
+  | 'FAILED'
+  | 'RESTORING';
+
+export interface LockerMasterKeyEnvelope {
+  wrapped_master_key: string;
+  iv: string;
+  salt: string;
+  recovery_wrapped_master_key?: string;
+  recovery_iv?: string;
+  recovery_salt?: string;
+}
+
+export interface LockerBackupManifest {
+  vault_id: UUID;
+  user_id: UUID;
+  backup_id: string;
+  timestamp: string;
+  encrypted_items_count: number;
+  ciphertext_hash_sha256: string;
+  key_version: number;
+  status: 'VERIFIED' | 'PENDING' | 'FAILED';
+  encrypted_manifest_payload: string;
+  iv: string;
+}
+
 export interface LockerMetadata {
   vault_id: UUID;
   user_id: UUID;
@@ -320,6 +356,11 @@ export interface LockerMetadata {
   failed_attempts: number;
   lockout_until: string | null;
   auto_lock_timeout_minutes: number;
+  key_envelope?: LockerMasterKeyEnvelope;
+  last_backup_at?: string | null;
+  backup_status?: LockerBackupStatus;
+  backup_verified?: boolean;
+  drive_folder_id?: string | null;
   created_at: string;
   updated_at: string;
 }

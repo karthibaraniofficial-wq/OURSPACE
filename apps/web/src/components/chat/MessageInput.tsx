@@ -6,6 +6,7 @@ import {
   Paperclip,
   Smile,
   Image as ImageIcon,
+  Camera,
   Film,
   FileText,
   X,
@@ -22,6 +23,7 @@ import {
 import { useChatStore } from '@/store/useChatStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { uploadMediaToFirebaseStorage } from '@/lib/firebase/storage';
+import { InAppCameraModal } from '@/components/chat/InAppCameraModal';
 import { formatBytes } from '@ourspace/shared';
 import { cn } from '@/lib/utils';
 
@@ -44,6 +46,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -424,6 +427,78 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     }
   };
 
+  // Handle instant photo captured via built-in in-app camera
+  const handleCameraPhotoConfirm = async (
+    file: File,
+    thumbFile: File,
+    dimensions: { width: number; height: number },
+    caption?: string
+  ) => {
+    if (!space || !user) return;
+    setIsUploading(true);
+    setUploadProgress(10);
+    setUploadError(null);
+
+    try {
+      // 1. Resumable upload of original photo to Firebase Cloud Storage
+      const uploadResult = await uploadMediaToFirebaseStorage(
+        space.id,
+        'images',
+        file,
+        (percent) => setUploadProgress(percent),
+        user.id
+      );
+
+      // 2. Resumable upload of thumbnail to Firebase Cloud Storage
+      let thumbUrl: string | undefined;
+      let thumbPath: string | undefined;
+      try {
+        const thumbResult = await uploadMediaToFirebaseStorage(
+          space.id,
+          'images',
+          thumbFile,
+          undefined,
+          user.id
+        );
+        thumbUrl = thumbResult.downloadUrl;
+        thumbPath = thumbResult.storagePath;
+      } catch {
+        // Thumbnail upload non-fatal
+      }
+
+      // 3. Save message with metadata only to Firestore
+      await sendMessage({
+        spaceId: space.id,
+        senderId: user.id,
+        content: caption || null,
+        type: 'image',
+        replyToId: activeReply?.id || null,
+        attachment: {
+          file_name: uploadResult.fileName,
+          file_size: uploadResult.fileSize,
+          file_type: uploadResult.fileType,
+          media_category: 'image',
+          signed_url: uploadResult.downloadUrl,
+          file_path: uploadResult.storagePath,
+          thumbnail_url: thumbUrl || null,
+          thumbnail_path: thumbPath || null,
+          width: dimensions.width,
+          height: dimensions.height,
+        },
+      });
+
+      setIsUploading(false);
+      setUploadProgress(0);
+      setTyping(space.id, user.id, false);
+    } catch (err: unknown) {
+      console.error('[In-App Camera Upload Error]', err);
+      const msg = err instanceof Error ? err.message : 'Photo upload failed. Please try again.';
+      setUploadError(msg);
+      setIsUploading(false);
+      throw err;
+    }
+  };
+
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -638,22 +713,32 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             onChange={handleFileSelect}
           />
 
-          {/* Dedicated Share Photo Button */}
+          {/* 1. Dedicated In-App Camera Button */}
+          <button
+            type="button"
+            onClick={() => setIsCameraModalOpen(true)}
+            title="Take Photograph with Camera"
+            className="p-2 sm:p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-rose-500 transition-colors shrink-0"
+          >
+            <Camera className="w-5 h-5" />
+          </button>
+
+          {/* 2. Dedicated Choose from Gallery Button */}
           <button
             type="button"
             onClick={() => imageInputRef.current?.click()}
-            title="Share Photograph"
-            className="p-2 sm:p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-rose-500 transition-colors"
+            title="Choose Photograph from Gallery"
+            className="p-2 sm:p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-rose-500 transition-colors shrink-0"
           >
             <ImageIcon className="w-5 h-5" />
           </button>
 
-          {/* Attachment / Document Button */}
+          {/* 3. Dedicated Attachment / Document / Video Button */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             title="Attach Document or Video"
-            className="p-2 sm:p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-300 transition-colors"
+            className="p-2 sm:p-2.5 rounded-2xl hover:bg-rose-50 dark:hover:bg-zinc-800 text-stone-500 dark:text-zinc-300 transition-colors shrink-0"
           >
             <Paperclip className="w-5 h-5" />
           </button>
@@ -751,6 +836,13 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           )}
         </div>
       )}
+
+      {/* Built-in In-App Camera Modal */}
+      <InAppCameraModal
+        isOpen={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        onConfirmPhoto={handleCameraPhotoConfirm}
+      />
     </div>
   );
 }
