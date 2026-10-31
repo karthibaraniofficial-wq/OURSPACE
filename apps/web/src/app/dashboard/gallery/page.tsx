@@ -20,6 +20,7 @@ import { useAlbumStore } from '@/store/useAlbumStore';
 import { Button } from '@/components/ui/Button';
 import { MediaViewerModal } from '@/components/gallery/MediaViewerModal';
 import { formatBytes } from '@ourspace/shared';
+import { cn } from '@/lib/utils';
 
 interface GalleryItem {
   id: string;
