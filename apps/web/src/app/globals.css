@@ -112,3 +112,79 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(244, 63, 94, 0.4);
 }
+
+/* ==========================================================================
+   RESPONSIVE ASPECT RATIO & FLUID TYPOGRAPHY SUITE
+   Supports screens from 320px mobile to 2560px ultrawide displays
+   ========================================================================== */
+.h-dvh {
+  height: 100dvh;
+}
+.min-h-dvh {
+  min-height: 100dvh;
+}
+.max-h-dvh {
+  max-height: 100dvh;
+}
+
+/* Safe Area Inset Management for Mobile & Foldable Displays */
+.safe-top {
+  padding-top: max(12px, env(safe-area-inset-top));
+}
+.safe-bottom {
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+.safe-left {
+  padding-left: max(12px, env(safe-area-inset-left));
+}
+.safe-right {
+  padding-right: max(12px, env(safe-area-inset-right));
+}
+
+/* Fluid Typography using CSS clamp() */
+.text-fluid-xs {
+  font-size: clamp(0.68rem, 0.64rem + 0.2vw, 0.8rem);
+}
+.text-fluid-sm {
+  font-size: clamp(0.78rem, 0.74rem + 0.3vw, 0.92rem);
+}
+.text-fluid-base {
+  font-size: clamp(0.9rem, 0.85rem + 0.4vw, 1.05rem);
+}
+.text-fluid-lg {
+  font-size: clamp(1.1rem, 1.0rem + 0.6vw, 1.35rem);
+}
+.text-fluid-xl {
+  font-size: clamp(1.35rem, 1.2rem + 0.9vw, 1.75rem);
+}
+.text-fluid-2xl {
+  font-size: clamp(1.65rem, 1.45rem + 1.3vw, 2.25rem);
+}
+.text-fluid-3xl {
+  font-size: clamp(2.1rem, 1.8rem + 1.8vw, 3.2rem);
+}
+
+/* Standard Natural Media Aspect Ratios */
+.aspect-media-portrait {
+  aspect-ratio: 9 / 16;
+}
+.aspect-media-landscape {
+  aspect-ratio: 16 / 9;
+}
+.aspect-media-square {
+  aspect-ratio: 1 / 1;
+}
+.aspect-media-photo {
+  aspect-ratio: 4 / 3;
+}
+.aspect-media-ultrawide {
+  aspect-ratio: 21 / 9;
+}
+
+/* Touch Target Accessibility Ceiling */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+}
+

@@ -87,14 +87,14 @@ export default function DashboardLayout({
   }, [space?.id, user?.id, partner, receiveCall]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-cream-50 dark:bg-[#0F0E13]">
+    <div className="flex h-screen h-dvh w-screen overflow-hidden bg-cream-50 dark:bg-[#0F0E13]">
       {/* Desktop Sidebar */}
       <Sidebar />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-6 p-4 sm:p-6">
+        <main className="flex-1 overflow-y-auto pb-20 md:pb-6 p-3 sm:p-4 md:p-6 safe-bottom">
           {children}
         </main>
       </div>

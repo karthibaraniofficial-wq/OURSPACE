@@ -1,0 +1,54 @@
+{
+  "name": "@ourspace/desktop",
+  "version": "2.3.0",
+  "description": "OURSPACE — Private Couple Communication Desktop Application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win --x64"
+  },
+  "author": "OURSPACE Team",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "app.ourspace.desktop",
+    "productName": "OURSPACE",
+    "copyright": "Copyright © 2026 OURSPACE",
+    "directories": {
+      "output": "../../apppackage/windows/build"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OURSPACE",
+      "artifactName": "OURSPACE-Windows-Setup-v${version}.${ext}",
+      "uninstallDisplayName": "OURSPACE Desktop Sanctuary",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "OURSPACE-Windows-Portable-v${version}.${ext}"
+    }
+  }
+}

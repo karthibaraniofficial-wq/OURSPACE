@@ -184,7 +184,7 @@ function ImageAttachment({
   return (
     <div className="relative group/photo rounded-2xl sm:rounded-3xl overflow-hidden shadow-md max-w-full my-1 bg-stone-100 dark:bg-zinc-900">
       {(isResolving || isLoading) && (
-        <div className="w-64 h-48 sm:h-56 rounded-2xl bg-gradient-to-br from-rose-100/50 to-pink-50/50 dark:from-zinc-800 dark:to-zinc-900 animate-pulse flex flex-col items-center justify-center text-rose-400 gap-2">
+        <div className="w-56 sm:w-64 h-40 sm:h-56 max-w-full rounded-2xl bg-gradient-to-br from-rose-100/50 to-pink-50/50 dark:from-zinc-800 dark:to-zinc-900 animate-pulse flex flex-col items-center justify-center text-rose-400 gap-2">
           <ImageIcon className="w-8 h-8 animate-bounce" />
           <span className="text-[11px] font-medium text-stone-500 dark:text-zinc-400">
             {isResolving ? 'Resolving photo...' : 'Loading photo...'}
@@ -201,7 +201,7 @@ function ImageAttachment({
           onError={handleImageError}
           onClick={() => onOpenMedia?.(resolvedUrl, 'image')}
           className={cn(
-            'max-h-80 sm:max-h-96 w-auto max-w-full rounded-2xl sm:rounded-3xl object-cover cursor-pointer transition-transform duration-300 group-hover/photo:scale-[1.01]',
+            'max-h-[55vh] sm:max-h-96 w-auto max-w-full rounded-2xl sm:rounded-3xl object-contain sm:object-cover cursor-pointer transition-transform duration-300 group-hover/photo:scale-[1.01]',
             (isResolving || isLoading) && 'hidden'
           )}
         />

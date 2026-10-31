@@ -1,34 +1,96 @@
 using System;
-using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
+
+[assembly: AssemblyTitle("OURSPACE Standalone Desktop")]
+[assembly: AssemblyDescription("Two Hearts. One Private Digital World.")]
+[assembly: AssemblyCompany("OURSPACE")]
+[assembly: AssemblyProduct("OURSPACE")]
+[assembly: AssemblyCopyright("Copyright © 2026 OURSPACE. All rights reserved.")]
+[assembly: AssemblyVersion("2.3.0.0")]
+[assembly: AssemblyFileVersion("2.3.0.0")]
 
 namespace OurSpace.Desktop
 {
     static class Program
     {
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
+            // Uninstallation routine if invoked with --uninstall
+            if (args.Length > 0 && args[0].Equals("--uninstall", StringComparison.OrdinalIgnoreCase))
+            {
+                RunUninstaller();
+                return;
+            }
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            Application.Run(new StandaloneAppForm());
+        }
+
+        static void RunUninstaller()
+        {
+            DialogResult res = MessageBox.Show(
+                "Are you sure you want to completely uninstall OURSPACE from your system?",
+                "OURSPACE Uninstaller",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (res != DialogResult.Yes) return;
+
+            try
+            {
+                // Remove shortcuts
+                string desktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "OURSPACE.lnk");
+                if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
+
+                string startMenuShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "OURSPACE.lnk");
+                if (File.Exists(startMenuShortcut)) File.Delete(startMenuShortcut);
+
+                // Remove registry key
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", true))
+                {
+                    if (key != null)
+                    {
+                        key.DeleteSubKeyTree("OURSPACE", false);
+                    }
+                }
+
+                MessageBox.Show(
+                    "OURSPACE has been uninstalled successfully. Your private data was preserved.",
+                    "Uninstallation Complete",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Uninstallation encountered an issue: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 
-    public class MainForm : Form
+    /// <summary>
+    /// OURSPACE Standalone Native Desktop Sanctuary Window
+    /// Hosts the application interface directly within its own native frame.
+    /// Does not open an external Chrome or Edge browser window.
+    /// </summary>
+    public class StandaloneAppForm : Form
     {
-        private Button btnLaunchProduction;
-        private Button btnStartLocal;
-        private Button btnDocs;
-        private Label lblTitle;
-        private Label lblSubtitle;
+        private WebBrowser browserControl;
+        private Panel topNavigationPanel;
+        private Label lblLogo;
         private Label lblStatus;
-        private Panel headerPanel;
+        private Button btnHome;
+        private Button btnChat;
+        private Button btnAlbums;
+        private Button btnLocker;
+        private Button btnReload;
+        private NotifyIcon trayIcon;
 
-        // Configurable Public URL (Reads from env or defaults to global public URL)
-        private string GetProductionUrl()
+        private string GetAppUrl()
         {
             string envUrl = Environment.GetEnvironmentVariable("OURSPACE_URL");
             if (!string.IsNullOrEmpty(envUrl)) return envUrl;
@@ -39,7 +101,6 @@ namespace OurSpace.Desktop
                 try
                 {
                     string content = File.ReadAllText(configPath);
-                    // Simple parser for {"url":"..."}
                     int idx = content.IndexOf("\"url\"");
                     if (idx >= 0)
                     {
@@ -54,137 +115,156 @@ namespace OurSpace.Desktop
                 }
                 catch { }
             }
-            return "https://ourspace.app";
+            return "https://ourspace-app-two.vercel.app";
         }
 
-        public MainForm()
+        public StandaloneAppForm()
         {
             InitializeComponent();
         }
 
         private void InitializeComponent()
         {
-            string targetUrl = GetProductionUrl();
+            string targetUrl = GetAppUrl();
 
-            this.Text = "OURSPACE — Private Couple Sanctuary";
-            this.Size = new Size(720, 520);
+            this.Text = "OURSPACE — Two Hearts. One Private Digital World.";
+            this.Size = new Size(1280, 860);
+            this.MinimumSize = new Size(960, 640);
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.BackColor = Color.FromArgb(255, 248, 248);
+            this.BackColor = Color.FromArgb(250, 248, 245);
 
-            // Header Panel
-            headerPanel = new Panel();
-            headerPanel.Dock = DockStyle.Top;
-            headerPanel.Height = 140;
-            headerPanel.BackColor = Color.FromArgb(244, 63, 94); // Romantic Rose Accent
+            // Attempt to load application icon
+            string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.ico");
+            if (!File.Exists(iconPath))
+            {
+                iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "assets", "icons", "icon.ico");
+            }
+            if (File.Exists(iconPath))
+            {
+                try { this.Icon = new Icon(iconPath); } catch { }
+            }
 
-            lblTitle = new Label();
-            lblTitle.Text = "OURSPACE";
-            lblTitle.Font = new Font("Segoe UI", 26, FontStyle.Bold);
-            lblTitle.ForeColor = Color.White;
-            lblTitle.AutoSize = true;
-            lblTitle.Location = new Point(30, 25);
-            headerPanel.Controls.Add(lblTitle);
+            // Custom Romantic Header Bar
+            topNavigationPanel = new Panel();
+            topNavigationPanel.Dock = DockStyle.Top;
+            topNavigationPanel.Height = 52;
+            topNavigationPanel.BackColor = Color.FromArgb(255, 255, 255);
+            topNavigationPanel.BorderStyle = BorderStyle.FixedSingle;
 
-            lblSubtitle = new Label();
-            lblSubtitle.Text = "Global Internet Edition v2.0.0 — Multi-Network & Cellular 5G Ready";
-            lblSubtitle.Font = new Font("Segoe UI", 11, FontStyle.Regular);
-            lblSubtitle.ForeColor = Color.FromArgb(254, 226, 226);
-            lblSubtitle.AutoSize = true;
-            lblSubtitle.Location = new Point(33, 80);
-            headerPanel.Controls.Add(lblSubtitle);
+            // Brand Logo Title
+            lblLogo = new Label();
+            lblLogo.Text = "OURSPACE";
+            lblLogo.Font = new Font("Segoe UI", 13, FontStyle.Bold);
+            lblLogo.ForeColor = Color.FromArgb(244, 63, 94); // Romantic Rose Accent
+            lblLogo.AutoSize = true;
+            lblLogo.Location = new Point(16, 14);
+            topNavigationPanel.Controls.Add(lblLogo);
 
-            this.Controls.Add(headerPanel);
+            // In-Window Fast Navigation Buttons
+            int leftOffset = 150;
 
-            // Status Label
+            btnHome = CreateNavButton("Home", leftOffset, () => browserControl.Navigate(targetUrl + "/dashboard"));
+            topNavigationPanel.Controls.Add(btnHome);
+            leftOffset += 80;
+
+            btnChat = CreateNavButton("Chat", leftOffset, () => browserControl.Navigate(targetUrl + "/dashboard/chat"));
+            topNavigationPanel.Controls.Add(btnChat);
+            leftOffset += 80;
+
+            btnAlbums = CreateNavButton("Albums", leftOffset, () => browserControl.Navigate(targetUrl + "/dashboard/albums"));
+            topNavigationPanel.Controls.Add(btnAlbums);
+            leftOffset += 90;
+
+            btnLocker = CreateNavButton("Locker", leftOffset, () => browserControl.Navigate(targetUrl + "/dashboard/locker"));
+            topNavigationPanel.Controls.Add(btnLocker);
+            leftOffset += 90;
+
+            btnReload = CreateNavButton("↻ Refresh", leftOffset, () => browserControl.Refresh());
+            topNavigationPanel.Controls.Add(btnReload);
+
+            // Connection Status Indicator
             lblStatus = new Label();
-            lblStatus.Text = "Connected to Global Production Cloud (" + targetUrl + "). Works across all Wi-Fi, 4G, and 5G cellular networks.";
-            lblStatus.Font = new Font("Segoe UI", 10, FontStyle.Italic);
-            lblStatus.ForeColor = Color.FromArgb(100, 116, 139);
-            lblStatus.Size = new Size(640, 45);
-            lblStatus.Location = new Point(40, 165);
-            this.Controls.Add(lblStatus);
+            lblStatus.Text = "● Connected to Private Sanctuary";
+            lblStatus.Font = new Font("Segoe UI", 9, FontStyle.Regular);
+            lblStatus.ForeColor = Color.FromArgb(16, 185, 129); // Green Dot
+            lblStatus.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            lblStatus.AutoSize = true;
+            lblStatus.Location = new Point(this.ClientSize.Width - 230, 16);
+            topNavigationPanel.Controls.Add(lblStatus);
 
-            // Primary Launch Button (Public Internet Sanctuary)
-            btnLaunchProduction = new Button();
-            btnLaunchProduction.Text = "🌐  Open Global Sanctuary (" + targetUrl + ")";
-            btnLaunchProduction.Font = new Font("Segoe UI", 11.5f, FontStyle.Bold);
-            btnLaunchProduction.Size = new Size(390, 55);
-            btnLaunchProduction.Location = new Point(40, 230);
-            btnLaunchProduction.BackColor = Color.FromArgb(244, 63, 94);
-            btnLaunchProduction.ForeColor = Color.White;
-            btnLaunchProduction.FlatStyle = FlatStyle.Flat;
-            btnLaunchProduction.FlatAppearance.BorderSize = 0;
-            btnLaunchProduction.Cursor = Cursors.Hand;
-            btnLaunchProduction.Click += (s, e) => {
-                try {
-                    Process.Start(targetUrl);
-                } catch (Exception ex) {
-                    MessageBox.Show("Could not open browser: " + ex.Message);
+            this.Controls.Add(topNavigationPanel);
+
+            // Embedded Browser Control (Renders UI inside this application window)
+            browserControl = new WebBrowser();
+            browserControl.Dock = DockStyle.Fill;
+            browserControl.ScriptErrorsSuppressed = true; // Prevents IE script popups
+            browserControl.IsWebBrowserContextMenuEnabled = false;
+            browserControl.ScrollBarsEnabled = true;
+
+            // Trap all navigation inside this application window
+            browserControl.NewWindow += (s, e) => {
+                // Cancel external window popup and navigate internally
+                e.Cancel = true;
+                string newUrl = browserControl.StatusText;
+                if (!string.IsNullOrEmpty(newUrl))
+                {
+                    browserControl.Navigate(newUrl);
                 }
             };
-            this.Controls.Add(btnLaunchProduction);
 
-            // Local Server Button (Dev Mode)
-            btnStartLocal = new Button();
-            btnStartLocal.Text = "🛠️  Local Server (Dev)";
-            btnStartLocal.Font = new Font("Segoe UI", 10, FontStyle.Regular);
-            btnStartLocal.Size = new Size(210, 55);
-            btnStartLocal.Location = new Point(450, 230);
-            btnStartLocal.BackColor = Color.White;
-            btnStartLocal.ForeColor = Color.FromArgb(71, 85, 105);
-            btnStartLocal.FlatStyle = FlatStyle.Flat;
-            btnStartLocal.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
-            btnStartLocal.Cursor = Cursors.Hand;
-            btnStartLocal.Click += (s, e) => {
-                try {
-                    ProcessStartInfo psi = new ProcessStartInfo();
-                    psi.FileName = "cmd.exe";
-                    psi.Arguments = "/c npm run dev";
-                    psi.WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory + @"..\";
-                    psi.UseShellExecute = true;
-                    Process.Start(psi);
-                    Process.Start("http://localhost:3000");
-                } catch (Exception ex) {
-                    MessageBox.Show("Error starting local server: " + ex.Message);
+            this.Controls.Add(browserControl);
+            browserControl.BringToFront();
+
+            // Setup Tray Icon for Minimization
+            try
+            {
+                trayIcon = new NotifyIcon();
+                trayIcon.Text = "OURSPACE — Private Sanctuary";
+                trayIcon.Visible = true;
+                if (this.Icon != null)
+                {
+                    trayIcon.Icon = this.Icon;
                 }
-            };
-            this.Controls.Add(btnStartLocal);
-
-            // Documentation & Networking Guides Button
-            btnDocs = new Button();
-            btnDocs.Text = "📖  Open Global Deployment & Networking Guides";
-            btnDocs.Font = new Font("Segoe UI", 11, FontStyle.Regular);
-            btnDocs.Size = new Size(620, 50);
-            btnDocs.Location = new Point(40, 310);
-            btnDocs.BackColor = Color.FromArgb(241, 245, 249);
-            btnDocs.ForeColor = Color.FromArgb(51, 65, 85);
-            btnDocs.FlatStyle = FlatStyle.Flat;
-            btnDocs.FlatAppearance.BorderSize = 0;
-            btnDocs.Cursor = Cursors.Hand;
-            btnDocs.Click += (s, e) => {
-                try {
-                    string docsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\docs\GLOBAL_CONNECTIVITY.md");
-                    if (File.Exists(docsPath)) {
-                        Process.Start("notepad.exe", docsPath);
-                    } else {
-                        Process.Start("explorer.exe", AppDomain.CurrentDomain.BaseDirectory + @"..\docs");
-                    }
-                } catch (Exception ex) {
-                    MessageBox.Show("Error opening docs: " + ex.Message);
+                else
+                {
+                    trayIcon.Icon = SystemIcons.Application;
                 }
-            };
-            this.Controls.Add(btnDocs);
+                trayIcon.DoubleClick += (s, e) => {
+                    this.Show();
+                    this.WindowState = FormWindowState.Normal;
+                    this.BringToFront();
+                };
+            }
+            catch { }
 
-            // Footer
-            Label lblFooter = new Label();
-            lblFooter.Text = "© 2026 OURSPACE Inc. Guaranteed 2-Person Private Sanctuary. Built with Google Firebase & LiveKit SFU.";
-            lblFooter.Font = new Font("Segoe UI", 8.5f, FontStyle.Regular);
-            lblFooter.ForeColor = Color.FromArgb(148, 163, 184);
-            lblFooter.AutoSize = true;
-            lblFooter.Location = new Point(40, 420);
-            this.Controls.Add(lblFooter);
+            // Initial Navigation
+            browserControl.Navigate(targetUrl);
+        }
+
+        private Button CreateNavButton(string text, int left, Action onClick)
+        {
+            Button btn = new Button();
+            btn.Text = text;
+            btn.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+            btn.Size = new Size(76, 32);
+            btn.Location = new Point(left, 10);
+            btn.BackColor = Color.FromArgb(255, 241, 242);
+            btn.ForeColor = Color.FromArgb(225, 29, 72);
+            btn.FlatStyle = FlatStyle.Flat;
+            btn.FlatAppearance.BorderSize = 0;
+            btn.Cursor = Cursors.Hand;
+            btn.Click += (s, e) => onClick();
+            return btn;
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (trayIcon != null)
+            {
+                trayIcon.Visible = false;
+                trayIcon.Dispose();
+            }
+            base.OnFormClosing(e);
         }
     }
 }

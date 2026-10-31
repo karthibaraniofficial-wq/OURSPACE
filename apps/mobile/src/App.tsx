@@ -340,6 +340,56 @@ export default function App() {
           </ScrollView>
         )}
 
+        {/* Memory Albums Tab */}
+        {activeTab === 'albums' && (
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <Text style={styles.sectionTitle}>Memory Albums</Text>
+            <Text style={styles.sectionSubtitle}>Cherished chapters of our relationship journey.</Text>
+            <View style={styles.albumCard}>
+              <View style={styles.albumCoverPlaceholder}>
+                <Text style={styles.albumCoverText}>🌅 Beginning</Text>
+              </View>
+              <View style={styles.albumMeta}>
+                <Text style={styles.albumTitle}>How We Met & First Dates</Text>
+                <Text style={styles.albumCount}>14 Memories • Shared</Text>
+              </View>
+            </View>
+            <View style={styles.albumCard}>
+              <View style={styles.albumCoverPlaceholder}>
+                <Text style={styles.albumCoverText}>✈️ Our Trips</Text>
+              </View>
+              <View style={styles.albumMeta}>
+                <Text style={styles.albumTitle}>Summer Coastal Getaway</Text>
+                <Text style={styles.albumCount}>28 Memories • Shared</Text>
+              </View>
+            </View>
+          </ScrollView>
+        )}
+
+        {/* OUR LOCKER: Encrypted Private Vault */}
+        {activeTab === 'locker' && (
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <Text style={styles.sectionTitle}>OUR LOCKER</Text>
+            <Text style={styles.sectionSubtitle}>Zero-knowledge client-side encrypted couple vault.</Text>
+            <View style={styles.lockerStatusCard}>
+              <Text style={styles.lockerStatusBadge}>🔒 256-bit AES-GCM Encrypted</Text>
+              <Text style={styles.lockerDesc}>Private notes, letters, documents, and emergency credentials protected strictly on-device.</Text>
+            </View>
+            <View style={styles.lockerSectionItem}>
+              <Text style={styles.lockerSectionTitle}>💌 Personal Letters to You</Text>
+              <Text style={styles.lockerSectionMeta}>3 encrypted letters • Tap to unlock</Text>
+            </View>
+            <View style={styles.lockerSectionItem}>
+              <Text style={styles.lockerSectionTitle}>🔑 Travel & Booking Details</Text>
+              <Text style={styles.lockerSectionMeta}>Encrypted passport & flight copies</Text>
+            </View>
+            <View style={styles.lockerSectionItem}>
+              <Text style={styles.lockerSectionTitle}>🚨 Emergency Medical & Contacts</Text>
+              <Text style={styles.lockerSectionMeta}>Immediate family contacts & allergy info</Text>
+            </View>
+          </ScrollView>
+        )}
+
         {activeTab === 'reminders' && (
           <ScrollView contentContainerStyle={styles.scrollContent}>
             <Text style={styles.sectionTitle}>Couple Tasks & Reminders</Text>
@@ -388,10 +438,10 @@ export default function App() {
         {[
           { id: 'home', label: 'Home' },
           { id: 'chat', label: 'Chat' },
-          { id: 'gallery', label: 'Vault' },
+          { id: 'albums', label: 'Albums' },
+          { id: 'locker', label: 'Locker' },
           { id: 'calls', label: 'Calls' },
           { id: 'reminders', label: 'Tasks' },
-          { id: 'memories', label: 'Memories' },
           { id: 'settings', label: 'Settings' },
         ].map((tab) => {
           const isActive = activeTab === tab.id;
@@ -742,6 +792,75 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1C1917',
     marginTop: 2,
+  },
+  albumCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#EFE7DE',
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  albumCoverPlaceholder: {
+    height: 120,
+    backgroundColor: '#FFF1F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  albumCoverText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#F43F5E',
+  },
+  albumMeta: {
+    padding: 14,
+  },
+  albumTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1C1917',
+  },
+  albumCount: {
+    fontSize: 11,
+    color: '#78716C',
+    marginTop: 4,
+  },
+  lockerStatusCard: {
+    backgroundColor: '#FFF1F2',
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+    marginBottom: 14,
+  },
+  lockerStatusBadge: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#E11D48',
+    marginBottom: 4,
+  },
+  lockerDesc: {
+    fontSize: 11,
+    color: '#78716C',
+    lineHeight: 16,
+  },
+  lockerSectionItem: {
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#EFE7DE',
+    marginBottom: 10,
+  },
+  lockerSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1C1917',
+  },
+  lockerSectionMeta: {
+    fontSize: 11,
+    color: '#F43F5E',
+    marginTop: 3,
   },
   bottomNav: {
     flexDirection: 'row',

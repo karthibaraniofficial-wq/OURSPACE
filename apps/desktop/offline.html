@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OURSPACE — Offline Sanctuary</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background: linear-gradient(135deg, #fff1f2 0%, #ffe4e6 50%, #fdf2f8 100%);
+      color: #1c1917;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+      user-select: none;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(254, 205, 211, 0.6);
+      border-radius: 28px;
+      padding: 48px 36px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(244, 63, 94, 0.08);
+    }
+    .heart-icon {
+      width: 72px;
+      height: 72px;
+      background: linear-gradient(135deg, #f43f5e 0%, #ec4899 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      box-shadow: 0 8px 24px rgba(244, 63, 94, 0.25);
+    }
+    .heart-icon svg {
+      width: 36px;
+      height: 36px;
+      fill: #ffffff;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      color: #881337;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    p {
+      font-size: 14px;
+      color: #78716c;
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #e11d48;
+      margin-bottom: 24px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #f43f5e;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.1); }
+      100% { opacity: 0.4; transform: scale(0.9); }
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px 24px;
+      background: linear-gradient(135deg, #f43f5e 0%, #ec4899 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 18px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(244, 63, 94, 0.25);
+      transition: all 0.2s ease;
+    }
+    .btn:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+    }
+    .btn:active {
+      transform: translateY(0);
+    }
+    .footer {
+      margin-top: 24px;
+      font-size: 11px;
+      color: #a8a29e;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="heart-icon">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+      </svg>
+    </div>
+    <div class="status-badge">
+      <span class="dot"></span>
+      <span>Waiting for Connection</span>
+    </div>
+    <h1>Quiet Moments Together</h1>
+    <p>Your sanctuary is currently offline. Cached messages and memories remain protected on this device. Reconnecting automatically when your network is restored.</p>
+    <button class="btn" onclick="checkConnection()">
+      <span>Reconnect Sanctuary</span>
+    </button>
+    <div class="footer">
+      OURSPACE Desktop Sanctuary v2.3.0 • End-to-End Secure
+    </div>
+  </div>
+
+  <script>
+    function checkConnection() {
+      if (navigator.onLine) {
+        window.location.reload();
+      } else {
+        const btn = document.querySelector('.btn span');
+        btn.textContent = 'Checking Network...';
+        setTimeout(() => {
+          btn.textContent = 'Reconnect Sanctuary';
+        }, 1200);
+      }
+    }
+
+    window.addEventListener('online', () => {
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>

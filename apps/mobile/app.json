@@ -2,7 +2,7 @@
   "expo": {
     "name": "OURSPACE",
     "slug": "ourspace",
-    "version": "2.0.0",
+    "version": "2.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,6 +20,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "OURSPACE requires camera access for private video calls with your partner.",
         "NSMicrophoneUsageDescription": "OURSPACE requires microphone access for audio and video calls.",
+        "NSPhotoLibraryUsageDescription": "OURSPACE requires photo library access to share memories and photos with your partner.",
         "UIBackgroundModes": ["remote-notification", "audio", "voip"]
       }
     },
@@ -29,6 +30,7 @@
         "backgroundColor": "#FAF8F5"
       },
       "package": "app.ourspace.client",
+      "versionCode": 230,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -36,6 +38,10 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.POST_NOTIFICATIONS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
         "android.permission.VIBRATE",
         "android.permission.WAKE_LOCK"
       ]
@@ -48,8 +54,8 @@
       "eas": {
         "projectId": "ourspace-client-mobile"
       },
-      "apiUrl": "https://ourspace.app/api",
-      "firebaseProjectId": "ourspace-app",
+      "apiUrl": "https://ourspace-app-two.vercel.app/api",
+      "firebaseProjectId": "ourspace-edbf5",
       "livekitUrl": "wss://ourspace.livekit.cloud"
     }
   }

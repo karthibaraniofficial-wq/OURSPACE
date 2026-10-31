@@ -39,9 +39,9 @@ export function Header() {
   };
 
   return (
-    <header className="h-16 px-6 glass-panel border-b border-rose-200/50 dark:border-purple-900/30 flex items-center justify-between z-30 shrink-0">
+    <header className="h-16 px-3 sm:px-6 glass-panel border-b border-rose-200/50 dark:border-purple-900/30 flex items-center justify-between z-30 shrink-0">
       {/* Space Status Title */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         <div className="w-9 h-9 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center font-bold">
           <Heart className="w-4 h-4 fill-rose-500" />
         </div>
