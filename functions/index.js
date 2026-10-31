@@ -53,7 +53,7 @@ export const onSpaceMemberCreate = onDocumentCreated(
 /**
  * Helper: Clean up invalid or expired FCM registration tokens
  */
-async function cleanupInvalidFcmTokens(uid: string, token: string, deviceDocId?: string) {
+async function cleanupInvalidFcmTokens(uid, token, deviceDocId) {
   try {
     if (deviceDocId) {
       await db.collection("users").doc(uid).collection("devices").doc(deviceDocId).delete();

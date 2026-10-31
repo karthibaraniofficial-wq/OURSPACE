@@ -2,6 +2,9 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@ourspace/types', '@ourspace/validation', '@ourspace/shared'],
+  experimental: {
+    serverComponentsExternalPackages: ['livekit-server-sdk'],
+  },
   images: {
     remotePatterns: [
       {
@@ -9,9 +12,6 @@ const nextConfig = {
         hostname: '**',
       },
     ],
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
   },
 };
 

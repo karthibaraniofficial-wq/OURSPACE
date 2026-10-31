@@ -1,115 +1,219 @@
-# OURSPACE — Private Couple Communication & Connection Platform
+# OURSPACE
 
-[![CI Pipeline](https://github.com/karthibaraniofficial-wq/OURSPACE/actions/workflows/ci.yml/badge.svg)](https://github.com/karthibaraniofficial-wq/OURSPACE/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-rose.svg)](https://opensource.org/licenses/MIT)
-[![Production Status](https://img.shields.io/badge/Production-Live-emerald.svg)](https://ourspace.app)
+<div align="center">
+  <img src="docs/assets/banner.svg" alt="OURSPACE Banner" width="100%" />
+</div>
 
-> **Two people, one private digital sanctuary, synchronized across the globe.**
+<p align="center">
+  <strong>Two Hearts. One Private Digital World.</strong>
+</p>
 
-OURSPACE is an enterprise-grade, cross-platform private communication platform engineered specifically for couples in a relationship. Built with strict two-person multi-tenant isolation, real-time Cloud Firestore streaming, LiveKit WebRTC high-definition voice and video calling, and a romantic soft glassmorphism interface.
+<p align="center">
+  <a href="https://github.com/karthibaraniofficial-wq/OURSPACE/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI%20Quality%20Gate-Passing-rose?style=flat-square&logo=github-actions" alt="CI Status" /></a>
+  <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-14.2%20App%20Router-black?style=flat-square&logo=next.js" alt="Next.js" /></a>
+  <a href="https://react.dev"><img src="https://img.shields.io/badge/React-18.2-61DAFB?style=flat-square&logo=react" alt="React" /></a>
+  <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.4-3178C6?style=flat-square&logo=typescript" alt="TypeScript" /></a>
+  <a href="https://firebase.google.com"><img src="https://img.shields.io/badge/Firebase-Auth%20%7C%20Firestore%20%7C%20Storage-FFCA28?style=flat-square&logo=firebase" alt="Firebase" /></a>
+  <a href="https://livekit.io"><img src="https://img.shields.io/badge/LiveKit-WebRTC%20SFU-8B5CF6?style=flat-square" alt="LiveKit" /></a>
+  <a href="https://expo.dev"><img src="https://img.shields.io/badge/Expo-SDK%2051-4630EB?style=flat-square&logo=expo" alt="Expo" /></a>
+  <a href="https://vercel.com"><img src="https://img.shields.io/badge/Vercel-Edge%20Hosting-000000?style=flat-square&logo=vercel" alt="Vercel" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-f43f5e?style=flat-square" alt="License" /></a>
+</p>
 
 ---
 
-## 📸 Architecture & Platform Overview
+## 🕊️ Introduction
+
+**OURSPACE** is a private communication platform crafted exclusively for two people in a relationship. Unlike public social networks and mass messaging apps crowded with group channels, broadcast lists, and algorithms, OURSPACE creates an intimate digital sanctuary: synchronized real-time conversations, encrypted photo and video vaults, zero-latency Web Audio chime alerts, high-definition LiveKit voice and video calls, shared countdowns, and anniversary milestones.
+
+Every space enforces strict two-person isolation. Third-party accounts cannot view, join, or discover an active couple space.
+
+---
+
+## 📸 Architecture & System Design
 
 ```text
 OURSPACE Monorepo Architecture
 ├── apps/
 │   ├── web/          # Next.js 14 App Router, PWA, Tailwind CSS, Framer Motion, Zustand
-│   └── mobile/       # Expo (React Native) cross-platform iOS & Android client
+│   └── mobile/       # Expo (React Native) iOS & Android client
 ├── packages/
 │   ├── types/        # TypeScript domain models, Firestore schemas & WebRTC contracts
 │   ├── validation/   # Zod validation schemas for auth, pairing, messages, reminders, env
 │   └── shared/       # Date math, countdown engine, Web Audio chime synthesizer, theme presets
-├── functions/        # Node 20 Firebase Cloud Functions v2 (reminders, space limits, FCM)
-├── apppackage/       # Standalone Windows launcher (.exe) and desktop shortcut scripts
-├── docs/             # Technical architecture, security audit, deployment guides
-└── tests/            # Automated test suites (40/40 tests passing across 14 suites)
+├── functions/        # Node.js 20 Firebase Cloud Functions v2 (reminders, space limits, FCM)
+├── apppackage/       # Desktop and mobile distribution packages & manifests
+├── docs/             # Engineering audits, upgrade reports, networking diagrams
+└── tests/            # Automated test suites covering domain logic, auth & validation
 ```
 
-### Global Connectivity Data Flow
-```text
-Partner A (Cellular 5G / Wi-Fi) ──┐
-                                   ├──> [ Edge CDN / Vercel ] ──> Next.js 14 Web App
-                                   ├──> [ Firebase Auth ] ─────> Secure Token Exchange
-                                   ├──> [ Cloud Firestore ] ───> Real-Time onSnapshot Sync
-Partner B (Cellular 5G / Wi-Fi) ──┘    ├──> [ Firebase Storage ] ──> Private Media Vault
-                                       ├──> [ Cloud Functions ] ───> Scheduled Cron / Triggers
-                                       └──> [ LiveKit Cloud ] ─────> WebRTC Audio/Video (STUN/TURN TLS)
-```
+<div align="center">
+  <img src="docs/assets/architecture.svg" alt="OURSPACE System Architecture" width="100%" />
+</div>
 
 ---
 
-## 🌟 Key Features
+## 🌟 Feature Overview
 
-| Domain | Capabilities |
-|---|---|
-| **Private Space Pairing** | Atomic Firestore transaction guarantees **strictly 2 accounts per space**. 48-hour expiring invite codes and instant deep links (`ourspace://pair?code=...`). |
-| **Real-Time 1-to-1 Chat** | Text, photos, videos, voice notes, documents, romantic emoji reactions, reply threads, message editing, soft deletion, and typing indicators. |
-| **Media Vault & Lightbox** | Categorized media gallery (Photos, Videos, Documents, Favourites), full-screen lightbox viewer, 50MB ceiling, and space-isolated storage rules. |
-| **LiveKit Audio & Video Calling** | HD calling powered by LiveKit SFU with WebSockets signaling, STUN, and TURN-over-TLS (port 443) for seamless connection across mobile 4G/5G CGNAT and restrictive Wi-Fi. |
-| **Shared Milestones & Dates** | Days Together live counter, countdowns to anniversaries, birthdays, and date nights. |
-| **Reminders & Tasks** | Shared reminders, priority levels, recurring intervals (daily, weekly, monthly, yearly), and completion animations. |
-| **Sound Synthesis Engine** | Zero-latency Web Audio API synthesizer generating 4 harmonic chime profiles without external network requests. |
-| **Resilient Networking** | Real-time connection badge (`Online`, `Reconnecting...`, `Offline`), offline message queueing with automatic FIFO sync on reconnect. |
+| Capability | Engineering Standard | User Experience |
+|:---|:---|:---|
+| **Atomic 2-Person Pairing** | Firestore transactional verification (`memberCount <= 2`). 48-hour cryptographically generated codes. | Single-click invitation link exchange. Instant sync once redeemed. |
+| **Real-Time 1-to-1 Chat** | Firestore `onSnapshot` streaming with optimistic UI updates and local FIFO offline queue. | Text, photos, voice notes, documents, romantic emoji reactions, and typing indicators. |
+| **Media Vault** | Firebase Storage with space-isolated access controls, 50MB ceiling, and MIME-type validation. | Masonry gallery categorized into Photos, Videos, and Documents with full-screen lightbox. |
+| **Global Voice & Video** | LiveKit WebRTC SFU with adaptive bitrate, WebSocket signaling, and STUN/TURN-over-TLS (port 443). | Reliable calling across mobile 4G/5G CGNAT, restrictive campus Wi-Fi, and broadband. |
+| **Shared Milestones** | UTC date computation engine with day-counter and countdown timers. | Days Together counter, customizable anniversaries, and shared celebrations. |
+| **Reminders & Tasks** | Firestore-persisted shared tasks with recurrence rules (daily, weekly, monthly, yearly). | Real-time task syncing, confetti completion animations, and chime alerts. |
+| **Zero-Latency Sound** | Native Web Audio API parametric oscillator synthesizer. | 4 romantic harmonic chime presets generated locally without network latency. |
+| **Resilient Networking** | Real-time connectivity state store (`Online`, `Reconnecting`, `Offline`). | Visual connectivity pill and automatic message resynchronization upon reconnection. |
 
 ---
 
 ## 🛠️ Technology Stack
 
-- **Frontend**: Next.js 14 (App Router), React 18, Tailwind CSS, Framer Motion, Lucide Icons, Zustand
-- **Mobile**: Expo SDK 51, React Native, React Native Reanimated
-- **Backend**: Google Firebase (Authentication, Cloud Firestore, Cloud Storage, Cloud Messaging, App Check)
-- **Serverless**: Firebase Cloud Functions v2 (Node.js 20)
-- **Calling**: LiveKit WebRTC SFU (`@livekit/components-react`, `livekit-client`, `livekit-server-sdk`)
-- **Hosting**: Vercel Edge Network & Firebase Hosting
-- **Desktop**: C# WebView2 lightweight native Windows wrapper
+- **Web Application**: Next.js 14 (App Router), React 18, Tailwind CSS, Framer Motion, Lucide Icons, Zustand
+- **Mobile Application**: Expo SDK 51, React Native 0.74, React Native Safe Area, Lucide Native
+- **Backend & Authentication**: Google Firebase (Firebase Authentication, Cloud Firestore, Firebase Storage)
+- **Audio & Video Infrastructure**: LiveKit WebRTC Cloud (SFU with STUN/TURN fallback)
+- **Validation & Schemas**: Zod runtime schema validation
+- **Cloud Computing**: Firebase Cloud Functions v2 (Node.js 20 runtime)
+- **Hosting & CI/CD**: Vercel Edge Network, GitHub Actions
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 Getting Started
 
-### 1. Prerequisites
-- **Node.js** >= 20.x (`v24.19.0` recommended)
-- **npm** >= 10.x
+### Prerequisites
 
-### 2. Environment Configuration
-Copy `.env.example` to `.env.local`:
+- **Node.js**: `v20.x` or `v22.x` (LTS recommended)
+- **Package Manager**: `npm` (v10+) or `yarn` (v1.22+)
+- **Firebase Project**: A Google Cloud / Firebase project with Authentication and Firestore enabled
+- **LiveKit Account**: Free cloud instance from [livekit.io](https://livekit.io) (optional for local mock mode)
+
+### 1. Clone the Repository
+
 ```bash
-cp .env.example .env.local
+git clone https://github.com/karthibaraniofficial-wq/OURSPACE.git
+cd OURSPACE
 ```
-Fill in your Firebase project and LiveKit credentials (refer to [docs/ENVIRONMENT_CONFIGURATION.md](file:///e:/private%20chat%20app/docs/ENVIRONMENT_CONFIGURATION.md)).
 
-### 3. Run Automated Tests
+### 2. Install Dependencies
+
 ```bash
-npm test
+npm install
 ```
-*Executes all 5 test suites (business logic, security audit, relational migration, validation contracts, global connectivity) with 40/40 passing tests.*
+
+### 3. Configure Environment Variables
+
+Create `.env.local` inside `apps/web/`:
+
+```env
+# General
+NODE_ENV=development
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Firebase Client SDK Configuration
+NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSy...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789012
+NEXT_PUBLIC_FIREBASE_APP_ID=1:123456789012:web:abcdef
+
+# LiveKit WebRTC Infrastructure (Server credentials kept private)
+NEXT_PUBLIC_LIVEKIT_URL=wss://your-subdomain.livekit.cloud
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+
+# Optional Integrations
+NEXT_PUBLIC_GIPHY_API_KEY=your_giphy_key
+```
 
 ### 4. Run Development Server
+
 ```bash
+# Start Next.js Web App
 npm run dev
+
+# Run Automated Test Suite
+npm test
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+Navigate to [http://localhost:3000](http://localhost:3000) to access the application.
 
 ---
 
-## 🔒 Security & Privacy Posture
+## 🔐 Security & Privacy Architecture
 
-- **Strict Two-Person Membership**: Guaranteed at database level via `firestore.rules` and backed by the atomic `onSpaceMemberCreate` Cloud Function trigger.
-- **Private Cloud Storage**: Access rules strictly verify `request.auth.uid` matches space membership.
-- **Zero Secrets Bundled**: Privileged keys (`LIVEKIT_API_SECRET`, service account private keys) are kept exclusively on the server.
-- **Fail-Safe Validation**: Typed Zod environment schema prevents application startup if mandatory production credentials are absent.
+OURSPACE enforces defense-in-depth principles across client, API, and storage tiers:
+
+1. **Strict 2-Member Enforcement**:
+   Firestore Security Rules prevent a third member from joining a space under any condition:
+   ```javascript
+   function isMemberOfSpace(spaceId) {
+     return request.auth != null &&
+       exists(/databases/$(database)/documents/privateSpaces/$(spaceId)/members/$(request.auth.uid));
+   }
+   ```
+2. **Atomic Invariant Trigger**:
+   Firebase Cloud Functions (`onSpaceMemberCreate`) automatically evict any unauthorized third document creation, logging security events to `auditLogs`.
+3. **MIME-Type & Payload Guard**:
+   Storage security rules restrict uploads to whitelisted media formats (`image/*`, `video/*`, `audio/*`, `application/pdf`) and cap file sizes at 50MB.
+4. **Zero Client Secret Leakage**:
+   Privileged credentials (`LIVEKIT_API_SECRET`, Firebase Service Accounts) reside exclusively in server-side route handlers and Cloud Functions. No privileged secrets are bundled into client JavaScript.
+5. **Security Headers**:
+   `apps/web/vercel.json` provides strict security headers on all responses: HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Permissions-Policy`.
 
 ---
 
-## 📚 Technical Documentation Directory
+## 🧪 Quality Gates & Testing
 
-- [Platform Integration Audit](file:///e:/private%20chat%20app/docs/PLATFORM_INTEGRATION_AUDIT.md)
-- [Production Deployment Guide](file:///e:/private%20chat%20app/docs/PRODUCTION_DEPLOYMENT.md)
-- [Global Connectivity & Mobile Matrix](file:///e:/private%20chat%20app/docs/GLOBAL_CONNECTIVITY.md)
-- [Environment Configuration Manual](file:///e:/private%20chat%20app/docs/ENVIRONMENT_CONFIGURATION.md)
-- [LiveKit WebRTC & TURN Networking](file:///e:/private%20chat%20app/docs/LIVEKIT_NETWORKING.md)
-- [Mobile Production Build Setup](file:///e:/private%20chat%20app/docs/MOBILE_PRODUCTION_SETUP.md)
-- [Network Troubleshooting Playbook](file:///e:/private%20chat%20app/docs/NETWORK_TROUBLESHOOTING.md)
-- [Release Notes](file:///e:/private%20chat%20app/RELEASE_NOTES.md)
+The repository maintains an automated validation suite verifying domain calculations, schema validation, zero-localhost security scans, and type integrity:
+
+```bash
+# Run linting across all workspaces
+npm run lint
+
+# Run TypeScript typechecks
+npm run typecheck
+
+# Run test suites
+npm test
+
+# Run production build
+npm run build
+```
+
+---
+
+## 📱 Mobile App (iOS & Android)
+
+The mobile client is powered by Expo SDK 51:
+
+```bash
+cd apps/mobile
+
+# Start Expo development server
+npm run start
+
+# Launch on Android emulator
+npm run android
+
+# Launch on iOS simulator
+npm run ios
+```
+
+---
+
+## 📦 Distribution Packages
+
+The [`apppackage/`](apppackage/) directory contains pre-configured standalone launcher assets:
+- **Windows Desktop Launcher**: Native PE32+ executable with one-click shortcut installation.
+- **Android Package**: Installable APK package.
+- **Web PWA Package**: Progressive Web App distribution with offline caching service worker.
+- **Checksum Manifest**: Verifiable SHA-256 hashes in [`apppackage/CHECKSUMS.sha256`](apppackage/CHECKSUMS.sha256).
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

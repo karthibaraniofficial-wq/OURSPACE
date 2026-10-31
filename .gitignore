@@ -4,6 +4,8 @@
 
 # Dependencies
 node_modules/
+node_modules_trash/
+*node_modules_old*/
 .pnpm-store/
 npm-debug.log*
 yarn-debug.log*

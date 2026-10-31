@@ -19,6 +19,8 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useChatStore } from '@/store/useChatStore';
 import { useCallStore } from '@/store/useCallStore';
 import { calculateDaysTogether, getCountdown, formatChatTimestamp } from '@ourspace/shared';
+import { subscribeToFirestoreReminders } from '@/lib/firebase/firestore';
+import type { Reminder } from '@ourspace/types';
 import { Button } from '@/components/ui/Button';
 
 export default function DashboardPage() {
@@ -26,8 +28,29 @@ export default function DashboardPage() {
   const { messages } = useChatStore();
   const { initiateCall } = useCallStore();
 
+  const [reminders, setReminders] = React.useState<Reminder[]>([]);
+
+  React.useEffect(() => {
+    if (!space?.id) return;
+    const unsub = subscribeToFirestoreReminders(space.id, (list) => {
+      setReminders(list);
+    });
+    return () => unsub();
+  }, [space?.id]);
+
+  const upcomingReminders = reminders
+    .filter((r) => !r.is_completed && new Date(r.due_date).getTime() > Date.now())
+    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+  const nextEvent = upcomingReminders[0];
+  const nextEventCountdown = nextEvent ? getCountdown(nextEvent.due_date) : null;
+
+  const isPartnerOnline = React.useMemo(() => {
+    if (!partner?.updated_at) return false;
+    const lastActiveMs = new Date(partner.updated_at).getTime();
+    return !isNaN(lastActiveMs) && Date.now() - lastActiveMs < 5 * 60 * 1000;
+  }, [partner?.updated_at]);
+
   const daysTogether = calculateDaysTogether(space?.couple_started_at);
-  const nextEventCountdown = getCountdown('2026-12-25T00:00:00Z');
 
   const recentMessages = messages.slice(-3);
   const recentPhotos = messages
@@ -100,10 +123,17 @@ export default function DashboardPage() {
             <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
               Partner Status
             </span>
-            <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              <Radio className="w-2.5 h-2.5 animate-pulse" />
-              Online
-            </span>
+            {isPartnerOnline ? (
+              <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/60">
+                <Radio className="w-2.5 h-2.5 animate-pulse" />
+                Active now
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-zinc-400 font-medium bg-stone-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full border border-stone-200/60 dark:border-zinc-700">
+                <span className="w-1.5 h-1.5 rounded-full bg-stone-400 dark:bg-zinc-500" />
+                {partner ? 'Offline' : 'Not paired'}
+              </span>
+            )}
           </div>
 
           {partner ? (
@@ -124,12 +154,12 @@ export default function DashboardPage() {
                   {partner.display_name}
                 </h4>
                 <p className="text-xs text-stone-500 truncate mt-0.5">
-                  &ldquo;{partner.status_message || 'Thinking of you'}&rdquo;
+                  &ldquo;{partner.status_message || 'In our sanctuary'}&rdquo;
                 </p>
               </div>
             </div>
           ) : (
-            <p className="text-xs text-stone-400">No partner connected yet.</p>
+            <p className="text-xs text-stone-400">Share your invite code to link accounts.</p>
           )}
 
           <div className="mt-4 pt-3 border-t border-rose-100/60 dark:border-zinc-800 flex justify-end">
@@ -158,7 +188,9 @@ export default function DashboardPage() {
               <span className="text-sm font-semibold text-rose-500">Days</span>
             </p>
             <p className="text-xs text-stone-500 mt-1">
-              Since {space?.couple_started_at || 'June 15, 2023'}
+              {space?.couple_started_at
+                ? `Since ${new Date(space.couple_started_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
+                : 'Configure anniversary in settings'}
             </p>
           </div>
 
@@ -183,13 +215,26 @@ export default function DashboardPage() {
           </div>
 
           <div>
-            <h4 className="text-sm font-bold text-stone-800 dark:text-zinc-100">
-              Christmas Getaway Trip
-            </h4>
-            <p className="text-2xl font-black text-purple-600 dark:text-purple-400 mt-1">
-              {nextEventCountdown.days}{' '}
-              <span className="text-xs font-semibold text-stone-500">days left</span>
-            </p>
+            {nextEvent ? (
+              <>
+                <h4 className="text-sm font-bold text-stone-800 dark:text-zinc-100 truncate">
+                  {nextEvent.title}
+                </h4>
+                <p className="text-2xl font-black text-purple-600 dark:text-purple-400 mt-1">
+                  {nextEventCountdown?.days ?? 0}{' '}
+                  <span className="text-xs font-semibold text-stone-500">days left</span>
+                </p>
+              </>
+            ) : (
+              <>
+                <h4 className="text-sm font-bold text-stone-800 dark:text-zinc-100">
+                  Shared Celebrations
+                </h4>
+                <p className="text-xs text-stone-500 dark:text-zinc-400 mt-1">
+                  Plan your next special couple milestone
+                </p>
+              </>
+            )}
           </div>
 
           <div className="mt-4 pt-3 border-t border-purple-100/60 dark:border-zinc-800 flex justify-end">
@@ -197,7 +242,7 @@ export default function DashboardPage() {
               href="/dashboard/reminders"
               className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1"
             >
-              <span>Open Calendar</span>
+              <span>{nextEvent ? 'Open Calendar' : 'Add Milestone'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>

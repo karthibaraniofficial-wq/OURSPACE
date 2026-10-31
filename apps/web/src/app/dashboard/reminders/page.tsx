@@ -20,6 +20,11 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { playChime } from '@ourspace/shared';
 import confetti from 'canvas-confetti';
+import {
+  subscribeToFirestoreReminders,
+  addReminderToFirestore,
+  toggleReminderCompleteInFirestore,
+} from '@/lib/firebase/firestore';
 
 interface ReminderItem {
   id: string;
@@ -37,50 +42,18 @@ const INITIAL_REMINDERS: ReminderItem[] = [
   {
     id: 'rem-1',
     title: 'Reserve table at Italian restaurant',
-    description: 'Booking by the window for 7:30 PM',
-    dueDate: '2026-11-02T19:30',
+    description: 'Booking by the window for cozy dinner',
+    dueDate: new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 16),
     recurrence: 'none',
     priority: 'high',
-    isCompleted: true,
-    isShared: true,
-    assignedToName: 'Jordan',
-  },
-  {
-    id: 'rem-2',
-    title: 'Pick up flight boarding passes & passports',
-    description: 'Check luggage limits and print documents',
-    dueDate: '2026-11-05T14:00',
-    recurrence: 'none',
-    priority: 'urgent',
     isCompleted: false,
     isShared: true,
     assignedToName: 'Both of us',
-  },
-  {
-    id: 'rem-3',
-    title: 'Weekly Sunday date night movie',
-    description: 'Our weekly cozy movie night with homemade popcorn 🍿',
-    dueDate: '2026-11-08T20:00',
-    recurrence: 'weekly',
-    priority: 'medium',
-    isCompleted: false,
-    isShared: true,
-    assignedToName: 'Both of us',
-  },
-  {
-    id: 'rem-4',
-    title: 'Water the balcony flowers together 🌸',
-    dueDate: '2026-11-01T09:00',
-    recurrence: 'daily',
-    priority: 'low',
-    isCompleted: false,
-    isShared: false,
-    assignedToName: 'Alex',
   },
 ];
 
 export default function RemindersPage() {
-  const { user, partner } = useAuthStore();
+  const { user, space, partner } = useAuthStore();
   const [reminders, setReminders] = useState<ReminderItem[]>(INITIAL_REMINDERS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
@@ -88,36 +61,65 @@ export default function RemindersPage() {
   // New Reminder Form State
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [dueDate, setDueDate] = useState('2026-11-05T18:00');
+  const [dueDate, setDueDate] = useState(() => new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16));
   const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'>('none');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [isShared, setIsShared] = useState(true);
 
-  const toggleComplete = (id: string) => {
+  // Sync with Firestore
+  React.useEffect(() => {
+    if (!space?.id) return;
+    const unsub = subscribeToFirestoreReminders(space.id, (firestoreReminders) => {
+      if (firestoreReminders.length > 0) {
+        setReminders(
+          firestoreReminders.map((r) => ({
+            id: r.id,
+            title: r.title,
+            description: r.description || undefined,
+            dueDate: r.due_date,
+            recurrence: r.recurrence as any,
+            priority: r.priority as any,
+            isCompleted: r.is_completed,
+            isShared: Boolean(r.assigned_to === null || r.assigned_to === 'both'),
+            assignedToName: r.assigned_to === partner?.id ? partner?.display_name : 'Both of us',
+          }))
+        );
+      }
+    });
+    return () => unsub();
+  }, [space?.id, partner?.id, partner?.display_name]);
+
+  const toggleComplete = async (id: string) => {
+    const target = reminders.find((r) => r.id === id);
+    const nextState = !target?.isCompleted;
+
+    if (nextState) {
+      playChime('modern-ping');
+      confetti({ particleCount: 50, spread: 50, origin: { y: 0.6 } });
+    }
+
     setReminders((prev) =>
-      prev.map((r) => {
-        if (r.id === id) {
-          const nextState = !r.isCompleted;
-          if (nextState) {
-            playChime('modern-ping');
-            confetti({ particleCount: 50, spread: 50, origin: { y: 0.6 } });
-          }
-          return { ...r, isCompleted: nextState };
-        }
-        return r;
-      })
+      prev.map((r) => (r.id === id ? { ...r, isCompleted: nextState } : r))
     );
+
+    if (space?.id && user?.id) {
+      try {
+        await toggleReminderCompleteInFirestore(space.id, id, nextState, user.id);
+      } catch (err) {
+        console.error('Failed to sync reminder completion to Firestore:', err);
+      }
+    }
   };
 
   const deleteReminder = (id: string) => {
     setReminders((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const handleCreateReminder = (e: React.FormEvent) => {
+  const handleCreateReminder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
-    const newReminder: ReminderItem = {
+    const newReminderItem: ReminderItem = {
       id: 'rem-' + Date.now(),
       title: title.trim(),
       description: description.trim() || undefined,
@@ -129,13 +131,29 @@ export default function RemindersPage() {
       assignedToName: isShared ? 'Both of us' : user?.display_name || 'Me',
     };
 
-    setReminders([newReminder, ...reminders]);
+    setReminders((prev) => [newReminderItem, ...prev]);
     playChime('soft-bell');
     setIsModalOpen(false);
 
     // Reset Form
     setTitle('');
     setDescription('');
+
+    if (space?.id && user?.id) {
+      try {
+        await addReminderToFirestore(space.id, {
+          title: newReminderItem.title,
+          description: newReminderItem.description,
+          due_date: newReminderItem.dueDate,
+          recurrence: newReminderItem.recurrence,
+          priority: newReminderItem.priority,
+          assigned_to: isShared ? null : user.id,
+          created_by: user.id,
+        });
+      } catch (err) {
+        console.error('Failed to save reminder to Firestore:', err);
+      }
+    }
   };
 
   const filteredReminders = reminders.filter((r) => {

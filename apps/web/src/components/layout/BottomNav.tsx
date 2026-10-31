@@ -28,7 +28,7 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 glass-panel border-t border-rose-200/50 dark:border-purple-900/30 px-2 py-2 flex items-center justify-around">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 glass-panel border-t border-rose-200/50 dark:border-purple-900/30 px-1 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex items-center justify-around backdrop-blur-xl">
       {MOBILE_NAV_ITEMS.map((item) => {
         const Icon = item.icon;
         const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
@@ -36,15 +36,18 @@ export function BottomNav() {
           <Link
             key={item.href}
             href={item.href}
+            aria-label={item.label}
             className={cn(
-              'flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all',
+              'flex flex-col items-center justify-center py-1 px-1.5 rounded-xl transition-all duration-200 min-w-[44px]',
               isActive
                 ? 'text-rose-600 dark:text-rose-400 font-bold scale-105'
-                : 'text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200'
+                : 'text-stone-400 hover:text-stone-600 dark:text-zinc-400 dark:hover:text-zinc-200'
             )}
           >
             <Icon className={cn('w-5 h-5', isActive && 'stroke-[2.5px]')} />
-            <span className="text-[10px] mt-0.5">{item.label}</span>
+            <span className="text-[9px] sm:text-[10px] mt-0.5 tracking-tight font-medium leading-none">
+              {item.label}
+            </span>
           </Link>
         );
       })}
