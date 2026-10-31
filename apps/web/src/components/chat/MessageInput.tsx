@@ -51,15 +51,19 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     else if (file.type.startsWith('video/')) category = 'video';
     else if (file.type.startsWith('audio/')) category = 'audio';
 
-    const localUrl = URL.createObjectURL(file);
-    setSelectedAttachment({
-      file_name: file.name,
-      file_size: file.size,
-      file_type: file.type,
-      media_category: category,
-      signed_url: localUrl,
-      file_path: 'local/' + file.name,
-    });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setSelectedAttachment({
+        file_name: file.name,
+        file_size: file.size,
+        file_type: file.type,
+        media_category: category,
+        signed_url: dataUrl,
+        file_path: 'inline/' + file.name,
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSend = async () => {

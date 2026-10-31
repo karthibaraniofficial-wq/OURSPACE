@@ -47,7 +47,11 @@ export default function ChatPage() {
   }, [messages.length]);
 
   const handleStartCall = (type: 'audio' | 'video') => {
-    if (!space || !user || !partner) return;
+    if (!space || !user) return;
+    if (!partner) {
+      alert('Your partner has not joined this private space yet. Share your invitation code with your partner to pair before starting a call ❤️');
+      return;
+    }
     initiateCall({
       spaceId: space.id,
       caller: user,

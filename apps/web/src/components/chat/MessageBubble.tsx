@@ -27,6 +27,35 @@ interface MessageBubbleProps {
 
 const QUICK_REACTIONS = ['❤️', '😍', '😂', '🥺', '🎉', '💋'];
 
+function ImageAttachment({
+  att,
+  onOpenMedia,
+}: {
+  att: any;
+  onOpenMedia?: (url: string, type: string) => void;
+}) {
+  const [hasError, setHasError] = useState(false);
+
+  if (hasError) {
+    return (
+      <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-black/10 dark:bg-white/10 text-xs">
+        <FileText className="w-4 h-4 text-rose-500 shrink-0" />
+        <span className="truncate font-semibold">{att.file_name}</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={att.signed_url || att.file_path}
+      alt={att.file_name}
+      onError={() => setHasError(true)}
+      onClick={() => onOpenMedia?.(att.signed_url || att.file_path, 'image')}
+      className="max-h-72 w-full object-cover rounded-2xl cursor-pointer hover:opacity-95 transition-opacity"
+    />
+  );
+}
+
 export function MessageBubble({ message, currentUserId, onOpenMedia }: MessageBubbleProps) {
   const {
     activeReply,
@@ -96,12 +125,7 @@ export function MessageBubble({ message, currentUserId, onOpenMedia }: MessageBu
             {message.attachments.map((att) => (
               <div key={att.id} className="rounded-2xl overflow-hidden">
                 {att.media_category === 'image' && (
-                  <img
-                    src={att.signed_url || att.file_path}
-                    alt={att.file_name}
-                    onClick={() => onOpenMedia?.(att.signed_url || att.file_path, 'image')}
-                    className="max-h-72 w-full object-cover rounded-2xl cursor-pointer hover:opacity-95 transition-opacity"
-                  />
+                  <ImageAttachment att={att} onOpenMedia={onOpenMedia} />
                 )}
 
                 {att.media_category === 'video' && (

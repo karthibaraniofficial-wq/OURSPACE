@@ -12,7 +12,7 @@ import {
   joinPrivateSpaceInFirestore,
 } from '@/lib/firebase/firestore';
 import { isFirebaseConfigured, getFirebaseFirestore, getFirebaseAuth } from '@/lib/firebase/firebase';
-import { doc, getDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, deleteDoc, increment, collection, getDocs, onSnapshot } from 'firebase/firestore';
 
 interface AuthState {
   user: Profile | null;
@@ -122,12 +122,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
                   };
                   set({ space: currentSpace });
 
-                  // Fetch partner member
-                  const membersRef = doc(db, `privateSpaces/${spaceId}/members`, firebaseUser.uid);
-                  // Partner is the other member in privateSpaces/{spaceId}/members
-                  // In 2-person space, find co-member
-                  const dbInst = getFirebaseFirestore();
-                  // (Set partner if present)
+                  // Real-time listener for partner co-member
+                  const membersCol = collection(db, `privateSpaces/${spaceId}/members`);
+                  onSnapshot(membersCol, async (snapshot) => {
+                    const partnerDoc = snapshot.docs.find((d) => d.id !== firebaseUser.uid);
+                    if (partnerDoc) {
+                      const partnerProfile = await fetchUserProfileFromFirestore(partnerDoc.id);
+                      if (partnerProfile) {
+                        set({ partner: partnerProfile });
+                      } else {
+                        const pData = partnerDoc.data();
+                        set({
+                          partner: {
+                            id: partnerDoc.id,
+                            display_name: pData?.displayName || 'My Partner',
+                            avatar_url: null,
+                            bio: 'In our private space',
+                            status_message: 'Online',
+                            anniversary_date: null,
+                            accent_color: '#8b5cf6',
+                            theme_mode: 'light',
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                          },
+                        });
+                      }
+                    }
+                  });
                 }
               }
             }
