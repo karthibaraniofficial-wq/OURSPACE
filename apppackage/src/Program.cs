@@ -1,8 +1,12 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 [assembly: AssemblyTitle("OURSPACE Standalone Desktop")]
 [assembly: AssemblyDescription("Two Hearts. One Private Digital World.")]
@@ -16,6 +20,17 @@ namespace OurSpace.Desktop
 {
     static class Program
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int SW_RESTORE = 9;
+        private static Mutex singleInstanceMutex;
+        private static NotifyIcon trayIcon;
+        private static Process appProcess;
+
         [STAThread]
         static void Main(string[] args)
         {
@@ -26,71 +41,51 @@ namespace OurSpace.Desktop
                 return;
             }
 
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new StandaloneAppForm());
-        }
+            bool createdNew;
+            singleInstanceMutex = new Mutex(true, "OURSPACE_SINGLE_INSTANCE_MUTEX_V23", out createdNew);
 
-        static void RunUninstaller()
-        {
-            DialogResult res = MessageBox.Show(
-                "Are you sure you want to completely uninstall OURSPACE from your system?",
-                "OURSPACE Uninstaller",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-
-            if (res != DialogResult.Yes) return;
-
-            try
+            if (!createdNew)
             {
-                // Remove shortcuts
-                string desktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "OURSPACE.lnk");
-                if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
-
-                string startMenuShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "OURSPACE.lnk");
-                if (File.Exists(startMenuShortcut)) File.Delete(startMenuShortcut);
-
-                // Remove registry key
-                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", true))
+                // Bring existing instance to front
+                Process current = Process.GetCurrentProcess();
+                foreach (Process p in Process.GetProcessesByName(current.ProcessName))
                 {
-                    if (key != null)
+                    if (p.Id != current.Id && p.MainWindowHandle != IntPtr.Zero)
                     {
-                        key.DeleteSubKeyTree("OURSPACE", false);
+                        ShowWindow(p.MainWindowHandle, SW_RESTORE);
+                        SetForegroundWindow(p.MainWindowHandle);
+                        break;
                     }
                 }
-
-                MessageBox.Show(
-                    "OURSPACE has been uninstalled successfully. Your private data was preserved.",
-                    "Uninstallation Complete",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                return;
             }
-            catch (Exception ex)
+
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            string targetUrl = GetAppUrl();
+            string chromiumPath = FindChromiumRuntime();
+
+            if (string.IsNullOrEmpty(chromiumPath) || !File.Exists(chromiumPath))
             {
-                MessageBox.Show("Uninstallation encountered an issue: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(
+                    "A modern Chromium rendering engine (such as Microsoft Edge or WebView2) was not found on this system.\n\nPlease ensure Microsoft Edge or WebView2 Evergreen Runtime is installed.",
+                    "OURSPACE Engine Requirement",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return;
             }
+
+            // Launch standalone Chromium app container
+            LaunchAppWindow(chromiumPath, targetUrl);
+
+            // Initialize Background Tray Controller
+            SetupTrayIcon(targetUrl, chromiumPath);
+
+            Application.Run();
         }
-    }
 
-    /// <summary>
-    /// OURSPACE Standalone Native Desktop Sanctuary Window
-    /// Hosts the application interface directly within its own native frame.
-    /// Does not open an external Chrome or Edge browser window.
-    /// </summary>
-    public class StandaloneAppForm : Form
-    {
-        private WebBrowser browserControl;
-        private Panel topNavigationPanel;
-        private Label lblLogo;
-        private Label lblStatus;
-        private Button btnHome;
-        private Button btnChat;
-        private Button btnAlbums;
-        private Button btnLocker;
-        private Button btnReload;
-        private NotifyIcon trayIcon;
-
-        private string GetAppUrl()
+        private static string GetAppUrl()
         {
             string envUrl = Environment.GetEnvironmentVariable("OURSPACE_URL");
             if (!string.IsNullOrEmpty(envUrl)) return envUrl;
@@ -118,22 +113,99 @@ namespace OurSpace.Desktop
             return "https://ourspace-app-two.vercel.app";
         }
 
-        public StandaloneAppForm()
+        private static string FindChromiumRuntime()
         {
-            InitializeComponent();
+            // 1. Check Edge 64-bit & 32-bit locations
+            string[] candidatePaths = new string[]
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft", "Edge", "Application", "msedge.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "Edge", "Application", "msedge.exe"),
+            };
+
+            foreach (string path in candidatePaths)
+            {
+                if (File.Exists(path)) return path;
+            }
+
+            // 2. Check WebView2 Evergreen Directory
+            string webViewDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "EdgeWebView", "Application");
+            if (Directory.Exists(webViewDir))
+            {
+                try
+                {
+                    foreach (string subDir in Directory.GetDirectories(webViewDir))
+                    {
+                        string wvExe = Path.Combine(subDir, "msedgewebview2.exe");
+                        if (File.Exists(wvExe)) return wvExe;
+                        string edgeExe = Path.Combine(subDir, "msedge.exe");
+                        if (File.Exists(edgeExe)) return edgeExe;
+                    }
+                }
+                catch { }
+            }
+
+            // 3. Check App Paths in Registry
+            try
+            {
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe"))
+                {
+                    if (key != null)
+                    {
+                        string regPath = key.GetValue(null) as string;
+                        if (!string.IsNullOrEmpty(regPath) && File.Exists(regPath)) return regPath;
+                    }
+                }
+            }
+            catch { }
+
+            // 4. Check Google Chrome
+            string chromePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe");
+            if (File.Exists(chromePath)) return chromePath;
+            string chromeX86 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Google", "Chrome", "Application", "chrome.exe");
+            if (File.Exists(chromeX86)) return chromeX86;
+
+            return null;
         }
 
-        private void InitializeComponent()
+        private static void LaunchAppWindow(string enginePath, string url)
         {
-            string targetUrl = GetAppUrl();
+            try
+            {
+                string dataDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "OURSPACE", "ProfileData");
 
-            this.Text = "OURSPACE — Two Hearts. One Private Digital World.";
-            this.Size = new Size(1280, 860);
-            this.MinimumSize = new Size(960, 640);
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.BackColor = Color.FromArgb(250, 248, 245);
+                if (!Directory.Exists(dataDir))
+                {
+                    Directory.CreateDirectory(dataDir);
+                }
 
-            // Attempt to load application icon
+                // Launch Chromium in dedicated standalone App Mode
+                // --app ensures NO browser tabs, NO URL bar, and isolated desktop window
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = enginePath;
+                psi.Arguments = string.Format(
+                    "--app=\"{0}\" --user-data-dir=\"{1}\" --window-size=1280,860 --app-id=\"ourspace-sanctuary\" --disable-features=Translate,OptimizationHints,MediaRouter --enable-features=OverlayScrollbar --hide-crash-restore-bubble --no-first-run --no-default-browser-check",
+                    url,
+                    dataDir);
+                psi.UseShellExecute = false;
+
+                appProcess = Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not launch OURSPACE standalone window: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static void SetupTrayIcon(string targetUrl, string enginePath)
+        {
+            trayIcon = new NotifyIcon();
+            trayIcon.Text = "OURSPACE — Two Hearts. One Private Digital World.";
+            trayIcon.Visible = true;
+
+            // Load icon
             string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.ico");
             if (!File.Exists(iconPath))
             {
@@ -141,130 +213,85 @@ namespace OurSpace.Desktop
             }
             if (File.Exists(iconPath))
             {
-                try { this.Icon = new Icon(iconPath); } catch { }
+                try { trayIcon.Icon = new Icon(iconPath); } catch { trayIcon.Icon = SystemIcons.Application; }
+            }
+            else
+            {
+                trayIcon.Icon = SystemIcons.Application;
             }
 
-            // Custom Romantic Header Bar
-            topNavigationPanel = new Panel();
-            topNavigationPanel.Dock = DockStyle.Top;
-            topNavigationPanel.Height = 52;
-            topNavigationPanel.BackColor = Color.FromArgb(255, 255, 255);
-            topNavigationPanel.BorderStyle = BorderStyle.FixedSingle;
-
-            // Brand Logo Title
-            lblLogo = new Label();
-            lblLogo.Text = "OURSPACE";
-            lblLogo.Font = new Font("Segoe UI", 13, FontStyle.Bold);
-            lblLogo.ForeColor = Color.FromArgb(244, 63, 94); // Romantic Rose Accent
-            lblLogo.AutoSize = true;
-            lblLogo.Location = new Point(16, 14);
-            topNavigationPanel.Controls.Add(lblLogo);
-
-            // In-Window Fast Navigation Buttons
-            int leftOffset = 150;
-
-            btnHome = CreateNavButton("Home", leftOffset, () => browserControl.Navigate(targetUrl + "/dashboard"));
-            topNavigationPanel.Controls.Add(btnHome);
-            leftOffset += 80;
-
-            btnChat = CreateNavButton("Chat", leftOffset, () => browserControl.Navigate(targetUrl + "/dashboard/chat"));
-            topNavigationPanel.Controls.Add(btnChat);
-            leftOffset += 80;
-
-            btnAlbums = CreateNavButton("Albums", leftOffset, () => browserControl.Navigate(targetUrl + "/dashboard/albums"));
-            topNavigationPanel.Controls.Add(btnAlbums);
-            leftOffset += 90;
-
-            btnLocker = CreateNavButton("Locker", leftOffset, () => browserControl.Navigate(targetUrl + "/dashboard/locker"));
-            topNavigationPanel.Controls.Add(btnLocker);
-            leftOffset += 90;
-
-            btnReload = CreateNavButton("↻ Refresh", leftOffset, () => browserControl.Refresh());
-            topNavigationPanel.Controls.Add(btnReload);
-
-            // Connection Status Indicator
-            lblStatus = new Label();
-            lblStatus.Text = "● Connected to Private Sanctuary";
-            lblStatus.Font = new Font("Segoe UI", 9, FontStyle.Regular);
-            lblStatus.ForeColor = Color.FromArgb(16, 185, 129); // Green Dot
-            lblStatus.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            lblStatus.AutoSize = true;
-            lblStatus.Location = new Point(this.ClientSize.Width - 230, 16);
-            topNavigationPanel.Controls.Add(lblStatus);
-
-            this.Controls.Add(topNavigationPanel);
-
-            // Embedded Browser Control (Renders UI inside this application window)
-            browserControl = new WebBrowser();
-            browserControl.Dock = DockStyle.Fill;
-            browserControl.ScriptErrorsSuppressed = true; // Prevents IE script popups
-            browserControl.IsWebBrowserContextMenuEnabled = false;
-            browserControl.ScrollBarsEnabled = true;
-
-            // Trap all navigation inside this application window
-            browserControl.NewWindow += (s, e) => {
-                // Cancel external window popup and navigate internally
-                e.Cancel = true;
-                string newUrl = browserControl.StatusText;
-                if (!string.IsNullOrEmpty(newUrl))
-                {
-                    browserControl.Navigate(newUrl);
-                }
-            };
-
-            this.Controls.Add(browserControl);
-            browserControl.BringToFront();
-
-            // Setup Tray Icon for Minimization
-            try
-            {
-                trayIcon = new NotifyIcon();
-                trayIcon.Text = "OURSPACE — Private Sanctuary";
-                trayIcon.Visible = true;
-                if (this.Icon != null)
-                {
-                    trayIcon.Icon = this.Icon;
-                }
-                else
-                {
-                    trayIcon.Icon = SystemIcons.Application;
-                }
-                trayIcon.DoubleClick += (s, e) => {
-                    this.Show();
-                    this.WindowState = FormWindowState.Normal;
-                    this.BringToFront();
-                };
-            }
-            catch { }
-
-            // Initial Navigation
-            browserControl.Navigate(targetUrl);
-        }
-
-        private Button CreateNavButton(string text, int left, Action onClick)
-        {
-            Button btn = new Button();
-            btn.Text = text;
-            btn.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
-            btn.Size = new Size(76, 32);
-            btn.Location = new Point(left, 10);
-            btn.BackColor = Color.FromArgb(255, 241, 242);
-            btn.ForeColor = Color.FromArgb(225, 29, 72);
-            btn.FlatStyle = FlatStyle.Flat;
-            btn.FlatAppearance.BorderSize = 0;
-            btn.Cursor = Cursors.Hand;
-            btn.Click += (s, e) => onClick();
-            return btn;
-        }
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (trayIcon != null)
-            {
+            ContextMenu menu = new ContextMenu();
+            menu.MenuItems.Add("💖 Open Sanctuary", (s, e) => LaunchAppWindow(enginePath, targetUrl + "/dashboard"));
+            menu.MenuItems.Add("💬 Couple Chat", (s, e) => LaunchAppWindow(enginePath, targetUrl + "/dashboard/chat"));
+            menu.MenuItems.Add("📸 Memory Albums", (s, e) => LaunchAppWindow(enginePath, targetUrl + "/dashboard/albums"));
+            menu.MenuItems.Add("🔒 OUR LOCKER", (s, e) => LaunchAppWindow(enginePath, targetUrl + "/dashboard/locker"));
+            menu.MenuItems.Add("-");
+            menu.MenuItems.Add("❌ Exit OURSPACE", (s, e) => {
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
+                Application.Exit();
+            });
+
+            trayIcon.ContextMenu = menu;
+            trayIcon.DoubleClick += (s, e) => LaunchAppWindow(enginePath, targetUrl + "/dashboard");
+        }
+
+        private static void RunUninstaller()
+        {
+            DialogResult res = MessageBox.Show(
+                "Are you sure you want to completely uninstall OURSPACE from your system?",
+                "OURSPACE Uninstaller",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (res != DialogResult.Yes) return;
+
+            try
+            {
+                // Remove shortcuts
+                string desktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "OURSPACE.lnk");
+                if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
+
+                string startMenuShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "OURSPACE.lnk");
+                if (File.Exists(startMenuShortcut)) File.Delete(startMenuShortcut);
+
+                // Remove registry key
+                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", true))
+                {
+                    if (key != null)
+                    {
+                        key.DeleteSubKeyTree("OURSPACE", false);
+                    }
+                }
+
+                // Ask user regarding local data
+                DialogResult clearData = MessageBox.Show(
+                    "Do you also want to remove local cached files and profile data?",
+                    "Data Cleanup",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (clearData == DialogResult.Yes)
+                {
+                    string dataDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "OURSPACE");
+                    if (Directory.Exists(dataDir))
+                    {
+                        Directory.Delete(dataDir, true);
+                    }
+                }
+
+                MessageBox.Show(
+                    "OURSPACE has been uninstalled successfully.",
+                    "Uninstallation Complete",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
             }
-            base.OnFormClosing(e);
+            catch (Exception ex)
+            {
+                MessageBox.Show("Uninstallation encountered an issue: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }
