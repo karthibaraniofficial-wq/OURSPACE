@@ -113,7 +113,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           width: att.width || null,
           height: att.height || null,
           created_at: att.created_at || new Date().toISOString(),
-          signed_url: att.signed_url || att.download_url,
+          signed_url: (att.signed_url || att.download_url) ?? undefined,
           download_url: att.download_url || att.signed_url || null,
         });
       }

@@ -59,7 +59,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
 
-  const activeUploadTaskRef = useRef<UploadTask | null>(null);
+  const activeUploadTaskRef = useRef<AbortController | null>(null);
   const activeMessageIdRef = useRef<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -386,7 +386,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
   const handleCancelUpload = () => {
     if (activeUploadTaskRef.current) {
       try {
-        activeUploadTaskRef.current.cancel();
+        activeUploadTaskRef.current.abort();
       } catch {}
       activeUploadTaskRef.current = null;
     }
@@ -752,11 +752,11 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
                 <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span className="uppercase tracking-wider font-mono">
-                    {uploadStage === 'PREPARING IMAGE'
-                      ? 'PREPARING IMAGE...'
-                      : uploadStage === 'CONNECTING TO FIREBASE'
-                      ? 'CONNECTING TO FIREBASE...'
-                      : uploadStage === 'UPLOADING'
+                    {uploadStage === 'PREPARING ENCRYPTION'
+                      ? 'PREPARING ENCRYPTION...'
+                      : uploadStage === 'CONNECTING TO OURSPACE'
+                      ? 'CONNECTING TO OURSPACE...'
+                      : uploadStage === 'UPLOADING TO DRIVE'
                       ? `UPLOADING ${uploadProgress}%`
                       : uploadStage === 'FINALIZING UPLOAD'
                       ? 'FINALIZING UPLOAD...'

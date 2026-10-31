@@ -231,7 +231,7 @@ export function ActiveCallModal() {
         const targetUrl =
           liveKitUrl || process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://ourspace.livekit.cloud';
 
-        await room.connect(targetUrl, liveKitToken);
+        await room.connect(targetUrl, liveKitToken!);
 
         if (!isMounted) {
           room.disconnect();

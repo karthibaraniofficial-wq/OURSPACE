@@ -145,20 +145,21 @@ function ImageAttachment({
 
   const handleImageLoad = () => {
     setIsLoading(false);
-    logMediaDiagnostic('IMAGE_RENDERED', {
-      messageId,
+    logMediaDiagnostic({
+      stage: 'IMAGE_RENDERED',
+      fileId: att.id,
       fileName: att.file_name,
-      url: resolvedUrl?.substring(0, 50),
     });
   };
 
   const handleImageError = () => {
     setIsLoading(false);
     setHasError(true);
-    logMediaDiagnostic('IMAGE_LOAD_FAILED', {
-      messageId,
+    logMediaDiagnostic({
+      stage: 'IMAGE_LOAD_FAILED',
+      fileId: att.id,
       fileName: att.file_name,
-      reason: 'HTMLImageElement onError triggered',
+      error: 'HTMLImageElement onError triggered',
     });
   };
 
@@ -475,11 +476,11 @@ export function MessageBubble({ message, currentUserId, onOpenMedia }: MessageBu
           <div className="flex flex-col gap-2 mb-2">
             {message.attachments.map((att) => (
               <div key={att.id} className="rounded-2xl overflow-hidden">
-                {(att.media_category === 'image' || att.media_category === 'images' || att.file_type?.startsWith('image/')) && (
+                {((att.media_category as string) === 'image' || (att.media_category as string) === 'images' || att.file_type?.startsWith('image/')) && (
                   <ImageAttachment att={att} onOpenMedia={onOpenMedia} messageId={message.id} spaceId={message.space_id} />
                 )}
 
-                {(att.media_category === 'video' || att.media_category === 'videos' || att.file_type?.startsWith('video/')) && (
+                {((att.media_category as string) === 'video' || (att.media_category as string) === 'videos' || att.file_type?.startsWith('video/')) && (
                   <VideoMessagePlayer att={att} spaceId={message.space_id} />
                 )}
 

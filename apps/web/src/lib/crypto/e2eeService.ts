@@ -108,7 +108,8 @@ export function clearE2EEKeyCache(): void {
  */
 export async function computeBufferSha256(buffer: ArrayBuffer | Uint8Array): Promise<string> {
   const subtle = getSubtle();
-  const digest = await subtle.digest('SHA-256', buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer));
+  const rawBytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const digest = await subtle.digest('SHA-256', rawBytes as unknown as BufferSource);
   return bufferToHex(digest);
 }
 
@@ -143,9 +144,9 @@ export async function encryptMediaBuffer(
 
   // 3. Encrypt media bytes with AES-GCM 256-bit
   const ciphertextBuffer = await subtle.encrypt(
-    { name: 'AES-GCM', iv: ivBytes },
+    { name: 'AES-GCM', iv: ivBytes as unknown as BufferSource },
     mediaFileKey,
-    buffer
+    buffer as unknown as BufferSource
   );
 
   const ciphertext = new Uint8Array(ciphertextBuffer);
@@ -157,9 +158,9 @@ export async function encryptMediaBuffer(
   const rawMediaKey = await subtle.exportKey('raw', mediaFileKey);
   const wrapIv = generateRandomBytes(12);
   const wrappedKeyBuffer = await subtle.encrypt(
-    { name: 'AES-GCM', iv: wrapIv },
+    { name: 'AES-GCM', iv: wrapIv as unknown as BufferSource },
     spaceKey,
-    rawMediaKey
+    rawMediaKey as unknown as BufferSource
   );
 
   // Combine wrap IV + wrapped bytes into single base64 string
@@ -197,9 +198,9 @@ export async function decryptMediaBuffer(
 
   // 2. Unwrap the ephemeral media file key using Space Key
   const unwrappedRawKey = await subtle.decrypt(
-    { name: 'AES-GCM', iv: wrapIv },
+    { name: 'AES-GCM', iv: wrapIv as unknown as BufferSource },
     spaceKey,
-    wrappedRawKey
+    wrappedRawKey as unknown as BufferSource
   );
 
   const mediaFileKey = await subtle.importKey(
@@ -212,9 +213,9 @@ export async function decryptMediaBuffer(
 
   // 3. Decrypt the actual media payload
   const decryptedBuffer = await subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as unknown as BufferSource },
     mediaFileKey,
-    ciphertext
+    ciphertext as unknown as BufferSource
   );
 
   return new Blob([decryptedBuffer], { type: mimeType });
@@ -238,9 +239,9 @@ export async function encryptTextMessage(
   const iv = generateRandomBytes(12);
 
   const ciphertextBuffer = await subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as unknown as BufferSource },
     spaceKey,
-    encoder.encode(plaintext)
+    encoder.encode(plaintext) as unknown as BufferSource
   );
 
   return {
@@ -270,9 +271,9 @@ export async function decryptTextMessage(
     const ciphertext = base64ToBuffer(ciphertextBase64);
 
     const decryptedBuffer = await subtle.decrypt(
-      { name: 'AES-GCM', iv },
+      { name: 'AES-GCM', iv: iv as unknown as BufferSource },
       spaceKey,
-      ciphertext
+      ciphertext as unknown as BufferSource
     );
 
     return decoder.decode(decryptedBuffer);

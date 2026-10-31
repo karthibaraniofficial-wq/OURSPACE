@@ -134,7 +134,7 @@ export async function uploadEncryptedMedia(options: MediaUploadOptions): Promise
         'Content-Range': `bytes ${rangeStart}-${rangeEnd}/${totalBytes}`,
         ...(authHeader ? { Authorization: authHeader } : {}),
       },
-      body: chunkSlice,
+      body: new Blob([chunkSlice as unknown as BlobPart]),
       signal,
     });
 

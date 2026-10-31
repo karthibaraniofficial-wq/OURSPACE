@@ -108,6 +108,8 @@ export function getFirebaseFirestore(): Firestore {
   return getFirestore(getFirebaseApp());
 }
 
+export const getFirestoreInstance = getFirebaseFirestore;
+
 export function getFirebaseStorageInstance(customBucket?: string): FirebaseStorage {
   const app = getFirebaseApp();
   const bucketName = customBucket || firebaseConfig.storageBucket;
