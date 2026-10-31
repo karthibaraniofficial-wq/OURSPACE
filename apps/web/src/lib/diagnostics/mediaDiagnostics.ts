@@ -73,3 +73,6 @@ export function logMediaEvent(event: MediaLogEvent): void {
     }
   }
 }
+
+// Backward-compatible alias for existing imports
+export const logMediaDiagnostic = logMediaEvent;
