@@ -1,0 +1,12 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@ourspace/types": ["../../packages/types/src/index.ts"],
+      "@ourspace/validation": ["../../packages/validation/src/index.ts"],
+      "@ourspace/shared": ["../../packages/shared/src/index.ts"]
+    }
+  }
+}

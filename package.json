@@ -1,0 +1,19 @@
+{
+  "name": "ourspace-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OURSPACE — Private Couple Communication & Connection Platform",
+  "workspaces": [
+    "packages/*",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

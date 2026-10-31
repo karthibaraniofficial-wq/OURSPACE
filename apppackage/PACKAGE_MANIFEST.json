@@ -1,0 +1,51 @@
+{
+  "application": "OURSPACE",
+  "version": "2.0.0",
+  "releaseTag": "v2.0.0-firebase-release",
+  "buildDate": "2026-10-31",
+  "backend": {
+    "provider": "Google Firebase",
+    "services": [
+      "Firebase Authentication",
+      "Cloud Firestore",
+      "Firebase Cloud Storage",
+      "Firebase Cloud Messaging (FCM)",
+      "Firebase Cloud Functions (v2)"
+    ],
+    "mediaTransport": "LiveKit SFU (WebRTC)"
+  },
+  "packages": [
+    {
+      "platform": "Android",
+      "fileName": "OURSPACE-Android-v2.0.0.apk",
+      "format": "APK (Android Package)",
+      "minSdk": 24,
+      "targetSdk": 34,
+      "description": "Installable Android application with camera, microphone, and FCM push notifications support."
+    },
+    {
+      "platform": "Windows",
+      "fileName": "OURSPACE-Windows-v2.0.0.exe",
+      "format": "PE32+ Executable (Native WinForms GUI)",
+      "architecture": "x64",
+      "minOs": "Windows 10 / 11",
+      "description": "Native Windows desktop launcher application with one-click sanctuary browser and local service management."
+    },
+    {
+      "platform": "Web (PWA)",
+      "fileName": "OURSPACE-Web-PWA.zip",
+      "format": "ZIP Archive",
+      "description": "Progressive Web Application distribution package containing offline service worker, manifest, and icons."
+    }
+  ],
+  "installers": [
+    {
+      "fileName": "Install-Desktop-Shortcut.bat",
+      "description": "One-click batch installer placing an OURSPACE launcher icon directly on the user's Windows Desktop."
+    },
+    {
+      "fileName": "Launch-OURSPACE.bat",
+      "description": "Direct console launcher script."
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "OURSPACE",
+    "slug": "ourspace",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAF8F5"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.ourspace.client",
+      "infoPlist": {
+        "NSCameraUsageDescription": "OURSPACE requires camera access for private video calls with your partner.",
+        "NSMicrophoneUsageDescription": "OURSPACE requires microphone access for audio and video calls.",
+        "UIBackgroundModes": ["remote-notification", "audio", "voip"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FAF8F5"
+      },
+      "package": "app.ourspace.client",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.WAKE_LOCK"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "ourspace",
+    "extra": {
+      "eas": {
+        "projectId": "ourspace-client-mobile"
+      },
+      "apiUrl": "https://ourspace.app/api",
+      "firebaseProjectId": "ourspace-app",
+      "livekitUrl": "wss://ourspace.livekit.cloud"
+    }
+  }
+}

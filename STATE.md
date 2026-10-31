@@ -1,0 +1,61 @@
+# OURSPACE — Project State (Global Internet Connectivity & Production Deployment)
+
+## Current Status
+- **Current Phase**: Global Internet Connectivity & Production Deployment
+- **Current Module**: Public Networking, Edge CDN (Vercel/Firebase Hosting), LiveKit Cloud WebRTC SFU, Mobile Production Config (Android/iOS/Windows), and Network Resilience
+- **Current Task**: Completed global internet connectivity transformation, resilient networking state store, zero-localhost production policy enforcement, and multi-network testing.
+- **Completed**:
+  - **Zero-Localhost & Production Policy**: Audited entire codebase and package outputs. Active production builds reference zero `localhost`, `127.0.0.1`, or LAN IP addresses. Desktop Windows wrapper (`apppackage/src/Program.cs`) refactored to default to `https://ourspace.app` (configurable via `OURSPACE_URL`), recompiled into `OURSPACE-Windows-v2.0.0.exe` with updated SHA-256 checksums.
+  - **Public Web Hosting & CDN**:
+    - Created `apps/web/vercel.json` with strict security headers (CSP, HSTS, X-Frame-Options: DENY, Permissions-Policy for camera/microphone, and service worker cache headers).
+    - Updated `firebase.json` with `hosting` configuration, public rewrites, and headers.
+    - Created `apps/web/public/firebase-messaging-sw.js` for background Web Push FCM notifications and universal click handlers.
+  - **Network Resilience & Connection State Machine**:
+    - Created `apps/web/src/store/useNetworkStore.ts`: tracks online/offline status, connection state (`connected`, `connecting`, `reconnecting`, `offline`), Network Information API for 4G/5G/Wi-Fi handover, and buffers offline actions into a FIFO pending queue with idempotency keys.
+    - Updated `apps/web/src/components/layout/Header.tsx`: mounted `initializeNetworkListeners()` and added dynamic connection pill badge (Emerald "Online", Amber "Reconnecting...", Rose "Offline (Actions Queued)").
+  - **Multi-Environment Templates**:
+    - `.env.development`: Points to local development servers and test emulator.
+    - `.env.staging`: Points to `https://staging.ourspace.app`.
+    - `.env.production`: Configured for public cloud services (`https://ourspace.app`, public Firebase project, `wss://ourspace.livekit.cloud`).
+  - **Mobile Production Configuration**:
+    - Created `apps/mobile/app.json` with package `app.ourspace.client`, scheme `ourspace`, required hardware permissions (`CAMERA`, `RECORD_AUDIO`, `POST_NOTIFICATIONS`), and cloud endpoints.
+    - Documented release signing and APNs/FCM configuration in `docs/MOBILE_PRODUCTION_SETUP.md`.
+  - **Global Audio & Video Calling Architecture**:
+    - LiveKit Cloud integration configured with secure WSS signaling, STUN, and TURN-over-TLS (port 443) fallback for strict firewalls and mobile symmetric CGNAT traversal.
+    - Documented port requirements and Docker/Coturn self-hosting instructions in `docs/LIVEKIT_NETWORKING.md`.
+  - **Documentation Suite**:
+    - `docs/PRODUCTION_DEPLOYMENT.md`: Vercel, Firebase Hosting, DNS records (`ourspace.app`), CI/CD GitHub Actions.
+    - `docs/GLOBAL_CONNECTIVITY.md`: Cellular 4G/5G carriers (Jio, Airtel, T-Mobile, AT&T), mobile CGNAT handling, Wi-Fi-to-cellular handover, offline action queues.
+    - `docs/LIVEKIT_NETWORKING.md`: WebRTC SFU, TURN-over-TLS port 443, firewall ports, token generation.
+    - `docs/MOBILE_PRODUCTION_SETUP.md`: Android release keystores, FCM notification channels, iOS APNs `.p8` keys, PushKit VoIP, and Universal Links.
+    - `docs/NETWORK_TROUBLESHOOTING.md`: Diagnostic flowchart, error codes, network test commands, and resolution matrix.
+  - **Automated Verification**:
+    - Created `tests/connectivity.test.mjs` verifying network state transitions, offline queueing, zero-localhost policy, WebRTC ICE STUN/TURN configs, and FCM payloads.
+    - Verified 40/40 automated tests passing across 5 test suites (`suite.test.mjs`, `audit.test.mjs`, `validation.test.mjs`, `migration.test.mjs`, `connectivity.test.mjs`).
+- **In Progress**: None. Ready for operator DNS and cloud credentials linking.
+- **Blocked**: None.
+- **Known Errors**: None.
+- **Next Task**: Operator provisioning of live production secrets (Firebase Console, LiveKit Cloud, Vercel/Custom Domain DNS).
+
+## Changes Tracker
+- **Changed & Created Files**:
+  - `apps/web/src/store/useNetworkStore.ts` (Resilient network store with offline queue & connection detection)
+  - `apps/web/src/components/layout/Header.tsx` (Dynamic connection status badge & network listener hook)
+  - `apps/web/vercel.json` (Vercel production edge deployment config with security headers)
+  - `apps/web/public/firebase-messaging-sw.js` (Web Push FCM background service worker)
+  - `apps/mobile/app.json` (Expo production configuration for Android/iOS)
+  - `apppackage/src/Program.cs` (Desktop launcher updated to default to `https://ourspace.app`)
+  - `apppackage/OURSPACE-Windows-v2.0.0.exe` (Recompiled release binary)
+  - `apppackage/CHECKSUMS.sha256` (Updated executable SHA-256 hash)
+  - `firebase.json` (Hosting configuration added)
+  - `.env.development`, `.env.staging`, `.env.production` (Environment separation)
+  - `docs/PRODUCTION_DEPLOYMENT.md` (Production deployment guide)
+  - `docs/GLOBAL_CONNECTIVITY.md` (Global multi-network & cellular matrix)
+  - `docs/LIVEKIT_NETWORKING.md` (WebRTC SFU & TURN-over-TLS guide)
+  - `docs/MOBILE_PRODUCTION_SETUP.md` (Native Android/iOS production build guide)
+  - `docs/NETWORK_TROUBLESHOOTING.md` (Diagnostic flowchart & network error codes)
+  - `tests/connectivity.test.mjs` (Automated connectivity and resilience tests)
+- **Verification**:
+  - 40/40 automated tests passing with zero failures.
+  - Zero `localhost` or private IP references in production runtime bundles.
+  - Full cross-platform package suite verified (`apppackage/`).

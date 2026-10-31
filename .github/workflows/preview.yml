@@ -1,0 +1,42 @@
+name: Preview Environment & Validation
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  preview-check:
+    name: Validate Pull Request & Preview Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js v20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Test Suite
+        run: node --test tests/*.test.mjs
+
+      - name: Build Web Application
+        env:
+          NEXT_PUBLIC_APP_URL: "https://staging.ourspace.app"
+          NEXT_PUBLIC_FIREBASE_API_KEY: "AIzaSyPreviewKeyPlaceholder"
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "ourspace-staging.firebaseapp.com"
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: "ourspace-staging"
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "ourspace-staging.appspot.com"
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "111111111111"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:111111111111:web:previewAppId"
+          NEXT_PUBLIC_LIVEKIT_URL: "wss://staging.livekit.cloud"
+          LIVEKIT_API_KEY: "preview_key"
+          LIVEKIT_API_SECRET: "preview_secret"
+        run: |
+          cd apps/web
+          npm run build

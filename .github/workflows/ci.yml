@@ -1,0 +1,40 @@
+name: CI Quality Gate & Test Suite
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  validate-and-test:
+    name: TypeCheck, Security Scan & Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js v20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Monorepo Dependencies
+        run: npm install
+
+      - name: Verify Automated Test Suite (40/40 Tests)
+        run: node --test tests/suite.test.mjs tests/audit.test.mjs tests/validation.test.mjs tests/migration.test.mjs tests/connectivity.test.mjs
+
+      - name: TypeScript TypeCheck
+        run: npm run typecheck
+
+      - name: Security Scan — Secret Leak & Zero-Localhost Audit
+        run: |
+          echo "Scanning for forbidden production patterns..."
+          if grep -rn "http://localhost" apps/web/src/lib/firebase/ apps/web/src/app/api/; then
+            echo "Error: Localhost detected in production client/server code!"
+            exit 1
+          fi
+          echo "No hardcoded localhost found in production paths. Quality gate passed."

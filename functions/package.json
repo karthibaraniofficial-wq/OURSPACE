@@ -1,0 +1,15 @@
+{
+  "name": "ourspace-functions",
+  "version": "1.0.0",
+  "description": "OURSPACE Firebase Cloud Functions for atomic pairing, scheduled reminders, and LiveKit tokens",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0",
+    "livekit-server-sdk": "^2.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

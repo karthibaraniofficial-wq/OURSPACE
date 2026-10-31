@@ -1,0 +1,42 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isMemberOfSpace(spaceId) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/privateSpaces/$(spaceId)/members/$(request.auth.uid));
+    }
+
+    function isValidFileSize() {
+      return request.resource.size < 50 * 1024 * 1024; // 50MB limit
+    }
+
+    function isValidMimeType() {
+      return request.resource.contentType.matches('image/.*') ||
+             request.resource.contentType.matches('video/.*') ||
+             request.resource.contentType.matches('audio/.*') ||
+             request.resource.contentType.matches('application/pdf') ||
+             request.resource.contentType.matches('application/msword') ||
+             request.resource.contentType.matches('application/vnd.openxmlformats-officedocument.*') ||
+             request.resource.contentType.matches('text/plain') ||
+             request.resource.contentType.matches('application/zip');
+    }
+
+    // Space-isolated media directory
+    match /spaces/{spaceId}/{category}/{fileName} {
+      allow read: if isMemberOfSpace(spaceId);
+      allow create: if isMemberOfSpace(spaceId) && isValidFileSize() && isValidMimeType();
+      allow delete: if isMemberOfSpace(spaceId);
+    }
+
+    // Default deny for everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

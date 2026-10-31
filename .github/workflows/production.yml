@@ -1,0 +1,48 @@
+name: Production Release & Deployment Verification
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  release-verification:
+    name: Production Release Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js v20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Full Test Suite (40 Tests)
+        run: node --test tests/*.test.mjs
+
+      - name: Deploy to Vercel (When VERCEL_TOKEN configured)
+        if: env.VERCEL_TOKEN != ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+          npx vercel build --prod --token=$VERCEL_TOKEN
+          npx vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
+
+      - name: Deploy Firebase Rules (When FIREBASE_TOKEN configured)
+        if: env.FIREBASE_TOKEN != ''
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          npx firebase deploy --only firestore:rules,storage --token=$FIREBASE_TOKEN
