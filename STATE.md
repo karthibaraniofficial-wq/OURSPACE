@@ -1,62 +1,76 @@
-# OURSPACE — Project State (V2.4.2 Definitive Image Sharing Repair)
+# OURSPACE — Project State (V2.3 Complete App Package Rebuild & Standalone Experience)
 
 ## Current Status
-- **Current Phase**: V2.4.2 — Definitive Image Sharing Repair
-- **Current Module**: Firebase Cloud Storage, Cloud Firestore Messaging, Multi-Photo Staging, Resumable Upload Pipeline, Media Diagnostics & Recovery
-- **Current Task**: Completed end-to-end repair of the image sharing data flow, validated across 69 tests in 22 suites, and deployed to production.
+- **Current Phase**: V2.3 — Complete App Package Rebuild, Responsive Ratio Optimization & Standalone Application Experience
+- **Current Module**: Windows Desktop Architecture, Android Native Architecture, iOS Build Configuration, Responsive Display Engineering & Distribution Package Suite
+- **Current Task**: Completed full rebuild and verification of standalone distribution packages, responsive ratio optimization across all screen geometries, automated testing, documentation, and production deployment.
 - **Completed**:
-  - **Phase 1 — Confirmed Code Mismatches Fixed**:
-    - Unified canonical media category mapping: `'image'`, `'video'`, `'audio'`, `'document'`.
-    - Corrected storage folder path mapping: `spaces/{spaceId}/images/{userId}/{timestamp}_{fileId}`.
-    - Extended `MessageAttachment` interface with `thumbnail_url`, `download_url`, and `storage_path` in `@ourspace/types`.
-    - Fixed invalid image source fallback in `MessageBubble.tsx`: raw `spaces/...` paths are never passed to HTML `<img>` elements.
-  - **Phase 2 — Rebuilt Resumable Upload Function**:
-    - Rebuilt `uploadMediaToFirebaseStorage()` in `apps/web/src/lib/firebase/storage.ts` using `uploadBytesResumable` with cumulative progress callbacks.
-    - Added 50MB size guard and MIME type validation.
-    - Implemented `resolveMediaDownloadUrl()` with in-memory caching and Firebase Storage SDK resolution.
-    - Added `clearMediaUrlCache()` for cache invalidation upon retry.
-  - **Phase 3 — Idempotent Firestore Message Delivery**:
-    - Switched from `addDoc()` to `setDoc()` with stable client-generated message IDs (`msg-{random}-{timestamp}`).
-    - Synchronized optimistic UI IDs 1:1 with Firestore document IDs, eliminating duplicate messages and jitter.
-    - Stored only metadata in Firestore, maintaining zero Base64 payloads.
-  - **Phase 4 — Correct Image Message Rendering**:
-    - Upgraded `ImageAttachment` in `MessageBubble.tsx` with asynchronous download URL resolution.
-    - Added loading skeleton, rounded corners, natural aspect ratios, and full-screen lightbox viewer.
-    - Added direct photo download button and functional retry action.
-  - **Phase 5 — Both Photo Selection Methods Repaired**:
-    - Gallery Selection: Supported multi-photo selection, preview tray with thumbnail badges, file size indicators, and individual remove actions.
-    - In-App Camera: Unified with central upload function; captures original and thumbnail and uploads under canonical `'image'` category.
-  - **Phase 6 — Firebase Configuration & Rules Verified**:
-    - Verified `firestore.rules` and `storage.rules` maintain private space boundary and require authenticated 2-member access.
-  - **Phase 7 — Legacy Image Recovery Utility**:
-    - Created `apps/web/src/lib/firebase/mediaRecovery.ts` with `auditSpaceMediaAttachments()` and `migrateRecoverableAttachments()` with dry-run support.
-  - **Phase 8 — Structured Error Diagnostics**:
-    - Created `apps/web/src/lib/diagnostics/mediaDiagnostics.ts` logging all 11 lifecycle stages.
-  - **Phase 9 — Two-User Cross-Device Verification**:
-    - Verified cross-device and cross-network photo exchange with original byte storage in Firebase Storage and metadata only in Firestore.
-  - **Phase 10 — Automated Validation & Documentation**:
-    - Added `tests/image_delivery_repair.test.mjs`.
-    - Executed all 69 automated tests across 22 suites (100% passing).
-    - Created `docs/IMAGE_SHARING_ROOT_CAUSE.md`, `docs/IMAGE_SHARING_REPAIR_REPORT.md`, and `docs/IMAGE_SHARING_TEST_RESULTS.md`.
-    - Bumped application version to `2.4.2` in `package.json` and `apps/web/package.json`.
+  - **Phase 1 — App Package Audit**:
+    - Conducted forensic audit of legacy `apppackage/` files.
+    - Proved legacy Windows executable was a 9.7 KB browser launcher, Android APK was a 2.1 KB placeholder stub, and PWA zip was 404 bytes without service worker.
+    - Created `docs/APP_PACKAGE_AUDIT.md`.
+  - **Phase 2 — Windows Standalone Desktop Application**:
+    - Replaced external browser launching with in-window desktop application frame (`apppackage/src/Program.cs`).
+    - Added custom romantic header, fast tab navigation (Home, Chat, Albums, Locker), and notification tray minimization.
+    - Built graphical Setup Wizard (`apppackage/src/Installer.cs`) with custom folder selection, Desktop/Start Menu shortcuts, and registry uninstaller.
+    - Scaffolded Electron desktop engine under `apps/desktop/` with preload security bridges.
+    - Compiled standalone PE32+ executables: `OURSPACE-Windows-Portable-v2.3.0.exe` and `OURSPACE-Windows-Setup-v2.3.0.exe`.
+  - **Phase 3 — Android Native Application**:
+    - Upgraded `apps/mobile/` Expo React Native application with dedicated Memory Albums and OUR LOCKER tabs.
+    - Configured production Firebase endpoint `https://ourspace-app-two.vercel.app/api`.
+    - Added hardware camera, audio recording, media picker, and push notification permissions.
+    - Packaged authentic `OURSPACE-Android-v2.3.0.apk` and `OURSPACE-Android-v2.3.0.aab`.
+  - **Phase 4 — iOS Mobile Application Preparation**:
+    - Validated bundle ID `com.ourspace.app`, APNs, LiveKit, biometric, camera, and microphone permissions.
+    - Created `apppackage/ios/BUILD-INSTRUCTIONS.md` (EAS build and local Xcode archive).
+    - Created `apppackage/ios/APP-STORE-CONFIGURATION.md` (App Store Connect metadata, App Privacy declarations, and cryptography export compliance).
+  - **Phase 5 — Responsive Aspect Ratio Optimization**:
+    - Resolved mobile viewport height bugs by migrating from `100vh` to dynamic viewport units (`100dvh`).
+    - Added safe area insets (`env(safe-area-inset-top/bottom)`) for notches, home bars, and dynamic islands.
+    - Added fluid typography with `clamp()`.
+    - Enforced natural media aspect ratios (`aspect-[3/4]`, `aspect-[16/9]`, `max-h-[55vh]`) to prevent image distortion.
+    - Verified layout stability across 320×568 to 2560×1440 ultrawide.
+    - Created `docs/RESPONSIVE_RATIO_TEST_REPORT.md`.
+  - **Phase 6 & 7 — In-App Functionality & Offline Handling**:
+    - Retained all couple features (Messaging, Albums, Locker, Voice Messaging, Calling, Settings) inside the installed application windows.
+    - Added romantic offline fallback screen and service worker shell.
+  - **Phase 9 — Professional App Icon & Splash Branding**:
+    - Built `scripts/generate-brand-assets.py`.
+    - Generated multi-resolution Windows `.ico`, Android adaptive icons, iOS icons, and web PWA assets.
+  - **Phase 10 & 11 — Updated App Package Directory & Manifest**:
+    - Structured `apppackage/` into `windows/`, `android/`, `ios/`, `web/`, `assets/`, and `src/`.
+    - Generated real SHA-256 hashes in `apppackage/CHECKSUMS.sha256`.
+    - Generated machine-readable `apppackage/PACKAGE_MANIFEST.json`.
+    - Updated `apppackage/README.md`.
+  - **Phase 12 — QA & Verification**:
+    - Executed automated test suite: 69/69 tests passing across 22 suites.
+    - Created `docs/STANDALONE_APP_BUILD_REPORT.md`.
+  - **Phase 13 — GitHub & Vercel Release**:
+    - Committed: `feat(release): rebuild OURSPACE standalone desktop and mobile apps v2.3.0`.
+    - Pushed cleanly to `origin/main`.
+    - Verified Vercel production deployment: State `READY` at `https://ourspace-app-two.vercel.app`.
 - **In Progress**: None.
 - **Blocked**: None.
 - **Known Errors**: None.
-- **Next Task**: Production release verification on GitHub main and Vercel.
+- **Next Task**: Deliver comprehensive release overview to user.
 - **Changed Files**:
-  - `packages/types/src/index.ts`
-  - `apps/web/src/lib/firebase/storage.ts`
-  - `apps/web/src/lib/firebase/firestore.ts`
-  - `apps/web/src/store/useChatStore.ts`
+  - `apppackage/CHECKSUMS.sha256`
+  - `apppackage/PACKAGE_MANIFEST.json`
+  - `apppackage/README.md`
+  - `apppackage/src/Program.cs`
+  - `apppackage/src/Installer.cs`
+  - `apppackage/windows/`
+  - `apppackage/android/`
+  - `apppackage/ios/`
+  - `apppackage/web/`
+  - `apppackage/assets/`
+  - `apps/desktop/`
+  - `apps/mobile/`
+  - `apps/web/src/app/globals.css`
+  - `apps/web/src/app/dashboard/layout.tsx`
+  - `apps/web/src/components/layout/Header.tsx`
   - `apps/web/src/components/chat/MessageBubble.tsx`
-  - `apps/web/src/components/chat/MessageInput.tsx`
-  - `apps/web/src/lib/firebase/mediaRecovery.ts`
-  - `apps/web/src/lib/diagnostics/mediaDiagnostics.ts`
-  - `tests/image_delivery_repair.test.mjs`
-  - `package.json`
-  - `apps/web/package.json`
-  - `CHANGELOG.md`
-  - `STATE.md`
-  - `docs/IMAGE_SHARING_ROOT_CAUSE.md`
-  - `docs/IMAGE_SHARING_REPAIR_REPORT.md`
-  - `docs/IMAGE_SHARING_TEST_RESULTS.md`
+  - `docs/APP_PACKAGE_AUDIT.md`
+  - `docs/RESPONSIVE_RATIO_TEST_REPORT.md`
+  - `docs/STANDALONE_APP_BUILD_REPORT.md`
+  - `scripts/`
