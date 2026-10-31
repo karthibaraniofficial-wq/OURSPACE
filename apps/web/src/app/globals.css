@@ -25,12 +25,19 @@
     --accent-gradient: linear-gradient(135deg, #FB7185 0%, #C084FC 100%);
   }
 
+  html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+  }
+
   body {
     background-color: var(--bg-base);
     color: var(--text-primary);
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
   }
 }
 

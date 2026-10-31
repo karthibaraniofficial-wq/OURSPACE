@@ -39,11 +39,17 @@ export default function ChatPage() {
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
 
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll inside messages container without scrolling parent layout or window
   useEffect(() => {
-    scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
   }, [messages.length]);
 
   const handleStartCall = (type: 'audio' | 'video') => {
@@ -66,7 +72,7 @@ export default function ChatPage() {
   });
 
   return (
-    <div className="h-[calc(100vh-7rem)] flex flex-col rounded-3xl glass-panel border border-rose-200/50 dark:border-purple-900/30 overflow-hidden shadow-xl">
+    <div className="h-full flex-1 min-h-0 flex flex-col rounded-3xl glass-panel border border-rose-200/50 dark:border-purple-900/30 overflow-hidden shadow-xl">
       {/* Chat Top Header */}
       <div className="h-16 px-6 glass-card border-b border-rose-100/60 dark:border-zinc-800 flex items-center justify-between z-10 shrink-0">
         {/* Partner Info */}
@@ -189,7 +195,7 @@ export default function ChatPage() {
       )}
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col min-h-0">
         {/* Sanctuary Intro Banner */}
         <div className="text-center my-6 flex flex-col items-center gap-2">
           <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center font-bold">
