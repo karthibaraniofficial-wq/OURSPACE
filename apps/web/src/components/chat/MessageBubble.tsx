@@ -24,6 +24,7 @@ import { formatChatTimestamp, formatBytes } from '@ourspace/shared';
 import { useChatStore } from '@/store/useChatStore';
 import { cn } from '@/lib/utils';
 import { resolveMediaDownloadUrl, clearMediaUrlCache } from '@/lib/firebase/storage';
+import { fetchAndDecryptMediaUrl } from '@/lib/media/mediaStorageService';
 import { logMediaDiagnostic } from '@/lib/diagnostics/mediaDiagnostics';
 
 interface MessageBubbleProps {
@@ -38,18 +39,17 @@ function ImageAttachment({
   att,
   onOpenMedia,
   messageId,
+  spaceId,
 }: {
   att: any;
   onOpenMedia?: (url: string, type: string) => void;
   messageId?: string;
+  spaceId?: string;
 }) {
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(() => {
     const direct = att.download_url || att.signed_url;
-    if (direct && (direct.startsWith('http://') || direct.startsWith('https://') || direct.startsWith('data:') || direct.startsWith('blob:'))) {
+    if (direct && (direct.startsWith('blob:') || direct.startsWith('data:'))) {
       return direct;
-    }
-    if (att.file_path && (att.file_path.startsWith('http://') || att.file_path.startsWith('https://') || att.file_path.startsWith('blob:'))) {
-      return att.file_path;
     }
     return null;
   });
@@ -65,7 +65,22 @@ function ImageAttachment({
     let isMounted = true;
 
     async function resolve() {
-      // If we already have a valid HTTP URL, no need to resolve from Storage
+      // 1. Transparent E2EE client-side decryption for Google Drive attachments
+      if (att.is_e2ee || (initialUrl && initialUrl.startsWith('/api/media/')) || att.iv) {
+        try {
+          const candidate = initialUrl || rawPath;
+          const decryptedUrl = await fetchAndDecryptMediaUrl(candidate, att, spaceId);
+          if (isMounted) {
+            setResolvedUrl(decryptedUrl);
+            setIsResolving(false);
+          }
+          return;
+        } catch (decryptErr) {
+          console.warn('[ImageAttachment] E2EE decryption attempt fallback:', decryptErr);
+        }
+      }
+
+      // 2. Direct HTTP URL fallback (e.g. legacy Firebase Storage or blob)
       if (initialUrl && (initialUrl.startsWith('http://') || initialUrl.startsWith('https://') || initialUrl.startsWith('data:') || initialUrl.startsWith('blob:'))) {
         if (isMounted) {
           setResolvedUrl(initialUrl);
@@ -102,21 +117,11 @@ function ImageAttachment({
         } else {
           setHasError(true);
           setIsResolving(false);
-          logMediaDiagnostic('IMAGE_LOAD_FAILED', {
-            messageId,
-            fileName: att.file_name,
-            reason: 'Storage download URL could not be resolved',
-          });
         }
       } catch (err: any) {
         if (!isMounted) return;
         setHasError(true);
         setIsResolving(false);
-        logMediaDiagnostic('IMAGE_LOAD_FAILED', {
-          messageId,
-          fileName: att.file_name,
-          error: err.message,
-        });
       }
     }
 
@@ -125,7 +130,7 @@ function ImageAttachment({
     return () => {
       isMounted = false;
     };
-  }, [rawPath, initialUrl, retryCount, messageId, att.file_name]);
+  }, [rawPath, initialUrl, retryCount, messageId, att.file_name, spaceId]);
 
   const handleRetry = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -238,13 +243,70 @@ function ImageAttachment({
   );
 }
 
-function AudioMessagePlayer({ att, isMine }: { att: any; isMine: boolean }) {
+function VideoMessagePlayer({ att, spaceId }: { att: any; spaceId?: string }) {
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function resolve() {
+      const candidate = att.download_url || att.signed_url || att.file_path;
+      if (!candidate) return;
+      if (att.is_e2ee || candidate.startsWith('/api/media/') || att.iv) {
+        try {
+          const dec = await fetchAndDecryptMediaUrl(candidate, att, spaceId);
+          if (isMounted) {
+            setVideoUrl(dec);
+            return;
+          }
+        } catch (err) {
+          console.warn('[VideoMessagePlayer] Decryption fallback:', err);
+        }
+      }
+      if (isMounted) setVideoUrl(candidate);
+    }
+    resolve();
+    return () => { isMounted = false; };
+  }, [att, spaceId]);
+
+  return (
+    <video
+      src={videoUrl || att.download_url || att.signed_url || att.file_path}
+      controls
+      className="max-h-72 w-full rounded-2xl bg-black"
+    />
+  );
+}
+
+function AudioMessagePlayer({ att, isMine, spaceId }: { att: any; isMine: boolean; spaceId?: string }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(att.duration_seconds || 0);
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 1.5 | 2>(1);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function resolve() {
+      const candidate = att.download_url || att.signed_url || att.file_path;
+      if (!candidate) return;
+      if (att.is_e2ee || candidate.startsWith('/api/media/') || att.iv) {
+        try {
+          const dec = await fetchAndDecryptMediaUrl(candidate, att, spaceId);
+          if (isMounted) {
+            setAudioUrl(dec);
+            return;
+          }
+        } catch (err) {
+          console.warn('[AudioMessagePlayer] Decryption fallback:', err);
+        }
+      }
+      if (isMounted) setAudioUrl(candidate);
+    }
+    resolve();
+    return () => { isMounted = false; };
+  }, [att, spaceId]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -291,7 +353,7 @@ function AudioMessagePlayer({ att, isMine }: { att: any; isMine: boolean }) {
     <div className="flex flex-col gap-1.5 p-3 rounded-2xl bg-black/10 dark:bg-white/10 min-w-[220px] max-w-sm">
       <audio
         ref={audioRef}
-        src={att.signed_url || att.file_path}
+        src={audioUrl || att.download_url || att.signed_url || att.file_path}
         onTimeUpdate={handleTimeUpdate}
         onEnded={() => setIsPlaying(false)}
         onLoadedMetadata={() => {
@@ -414,19 +476,15 @@ export function MessageBubble({ message, currentUserId, onOpenMedia }: MessageBu
             {message.attachments.map((att) => (
               <div key={att.id} className="rounded-2xl overflow-hidden">
                 {(att.media_category === 'image' || att.media_category === 'images' || att.file_type?.startsWith('image/')) && (
-                  <ImageAttachment att={att} onOpenMedia={onOpenMedia} messageId={message.id} />
+                  <ImageAttachment att={att} onOpenMedia={onOpenMedia} messageId={message.id} spaceId={message.space_id} />
                 )}
 
                 {(att.media_category === 'video' || att.media_category === 'videos' || att.file_type?.startsWith('video/')) && (
-                  <video
-                    src={att.download_url || att.signed_url || att.file_path}
-                    controls
-                    className="max-h-72 w-full rounded-2xl bg-black"
-                  />
+                  <VideoMessagePlayer att={att} spaceId={message.space_id} />
                 )}
 
                 {(att.media_category === 'audio' || att.file_type?.startsWith('audio/')) && (
-                  <AudioMessagePlayer att={att} isMine={isMine} />
+                  <AudioMessagePlayer att={att} isMine={isMine} spaceId={message.space_id} />
                 )}
 
                 {(att.media_category === 'document' || (!att.media_category && !att.file_type?.startsWith('image/') && !att.file_type?.startsWith('video/') && !att.file_type?.startsWith('audio/'))) && (

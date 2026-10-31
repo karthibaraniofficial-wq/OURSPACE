@@ -22,17 +22,16 @@ import {
 } from 'lucide-react';
 import { useChatStore } from '@/store/useChatStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import { uploadMediaToFirebaseStorage } from '@/lib/firebase/storage';
-import type { UploadTask } from 'firebase/storage';
+import { uploadEncryptedMedia } from '@/lib/media/mediaStorageService';
 import { InAppCameraModal } from '@/components/chat/InAppCameraModal';
 import { formatBytes } from '@ourspace/shared';
 import { cn } from '@/lib/utils';
 
 export type UploadStage =
   | 'IDLE'
-  | 'PREPARING IMAGE'
-  | 'CONNECTING TO FIREBASE'
-  | 'UPLOADING'
+  | 'PREPARING ENCRYPTION'
+  | 'CONNECTING TO OURSPACE'
+  | 'UPLOADING TO DRIVE'
   | 'FINALIZING UPLOAD'
   | 'SAVING MESSAGE'
   | 'SENT'
@@ -283,14 +282,15 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
         type: recordedAudioBlob.type || 'audio/webm',
       });
 
-      // Upload audio to Firebase Storage
-      const uploadRes = await uploadMediaToFirebaseStorage(
-        space.id,
-        'audio',
-        audioFile,
-        undefined,
-        user.id
-      );
+      // Upload voice note with E2EE to Central Google Drive
+      const uploadRes = await uploadEncryptedMedia({
+        file: audioFile,
+        fileName: audioFileName,
+        spaceId: space.id,
+        userId: user.id,
+        category: 'VOICE_NOTES',
+        onProgress: (percent) => setUploadProgress(percent),
+      });
 
       await sendMessage({
         spaceId: space.id,
@@ -305,8 +305,14 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           media_category: 'audio',
           duration_seconds: recordingDuration || 1,
           signed_url: uploadRes.downloadUrl,
-          file_path: uploadRes.storagePath,
-        },
+          download_url: uploadRes.downloadUrl,
+          file_path: uploadRes.downloadUrl,
+          storage_path: uploadRes.downloadUrl,
+          iv: uploadRes.manifest.iv,
+          wrapped_key: uploadRes.manifest.wrapped_key,
+          ciphertext_sha256: uploadRes.manifest.ciphertext_sha256,
+          is_e2ee: true,
+        } as any,
       });
 
       cancelVoiceRecording();
@@ -398,7 +404,7 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
         setIsUploading(true);
         setUploadProgress(0);
         setUploadError(null);
-        setUploadStage('PREPARING IMAGE');
+        setUploadStage('PREPARING ENCRYPTION');
 
         // Retain stable message ID across retries so it is idempotent
         if (!activeMessageIdRef.current) {
@@ -407,30 +413,26 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
         }
         const messageId = activeMessageIdRef.current;
 
-        setUploadStage('CONNECTING TO FIREBASE');
+        setUploadStage('CONNECTING TO OURSPACE');
 
         const uploadedAttachments = [];
         const totalItems = stagedMediaList.length;
 
         for (let i = 0; i < totalItems; i++) {
           const item = stagedMediaList[i];
-          const uploadResult = await uploadMediaToFirebaseStorage(
-            space.id,
-            item.category,
-            item.file,
-            {
-              onTaskCreated: (task) => {
-                activeUploadTaskRef.current = task;
-              },
-              onProgress: (percent) => {
-                setUploadStage('UPLOADING');
-                const base = (i / totalItems) * 100;
-                const contribution = percent / totalItems;
-                setUploadProgress(Math.min(99, Math.round(base + contribution)));
-              },
+          const uploadResult = await uploadEncryptedMedia({
+            file: item.file,
+            fileName: item.file.name,
+            spaceId: space.id,
+            userId: user.id,
+            category: item.category === 'video' ? 'CHAT_VIDEOS' : item.category === 'document' ? 'DOCUMENTS' : 'CHAT_IMAGES',
+            onProgress: (percent) => {
+              setUploadStage('UPLOADING TO DRIVE');
+              const base = (i / totalItems) * 100;
+              const contribution = percent / totalItems;
+              setUploadProgress(Math.min(99, Math.round(base + contribution)));
             },
-            user.id
-          );
+          });
 
           uploadedAttachments.push({
             file_name: uploadResult.fileName,
@@ -439,8 +441,12 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             media_category: item.category,
             signed_url: uploadResult.downloadUrl,
             download_url: uploadResult.downloadUrl,
-            file_path: uploadResult.storagePath,
-            storage_path: uploadResult.storagePath,
+            file_path: uploadResult.downloadUrl,
+            storage_path: uploadResult.downloadUrl,
+            iv: uploadResult.manifest.iv,
+            wrapped_key: uploadResult.manifest.wrapped_key,
+            ciphertext_sha256: uploadResult.manifest.ciphertext_sha256,
+            is_e2ee: true,
             width: item.width || null,
             height: item.height || null,
           });
@@ -519,45 +525,35 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
     setIsUploading(true);
     setUploadProgress(0);
     setUploadError(null);
-    setUploadStage('CONNECTING TO FIREBASE');
+    setUploadStage('PREPARING ENCRYPTION');
 
     const messageId =
       'msg-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36);
 
     try {
-      // 1. Resumable upload of original photo to Firebase Cloud Storage using canonical 'image' category
-      setUploadStage('UPLOADING');
-      const uploadResult = await uploadMediaToFirebaseStorage(
-        space.id,
-        'image',
+      setUploadStage('UPLOADING TO DRIVE');
+      const uploadResult = await uploadEncryptedMedia({
         file,
-        {
-          onTaskCreated: (task) => {
-            activeUploadTaskRef.current = task;
-          },
-          onProgress: (percent) => {
-            setUploadStage('UPLOADING');
-            setUploadProgress(Math.min(95, percent));
-          },
+        fileName: file.name || `photo_${Date.now()}.jpg`,
+        spaceId: space.id,
+        userId: user.id,
+        category: 'CHAT_IMAGES',
+        onProgress: (percent) => {
+          setUploadProgress(Math.min(95, percent));
         },
-        user.id
-      );
+      });
 
-      activeUploadTaskRef.current = null;
-
-      // 2. Resumable upload of thumbnail to Firebase Cloud Storage
+      // 2. Resumable upload of thumbnail with E2EE
       let thumbUrl: string | undefined;
-      let thumbPath: string | undefined;
       try {
-        const thumbResult = await uploadMediaToFirebaseStorage(
-          space.id,
-          'image',
-          thumbFile,
-          undefined,
-          user.id
-        );
+        const thumbResult = await uploadEncryptedMedia({
+          file: thumbFile,
+          fileName: `thumb_${uploadResult.fileName}`,
+          spaceId: space.id,
+          userId: user.id,
+          category: 'THUMBNAILS',
+        });
         thumbUrl = thumbResult.downloadUrl;
-        thumbPath = thumbResult.storagePath;
       } catch {
         // Thumbnail upload non-fatal
       }
@@ -579,13 +575,17 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
           media_category: 'image',
           signed_url: uploadResult.downloadUrl,
           download_url: uploadResult.downloadUrl,
-          file_path: uploadResult.storagePath,
-          storage_path: uploadResult.storagePath,
+          file_path: uploadResult.downloadUrl,
+          storage_path: uploadResult.downloadUrl,
           thumbnail_url: thumbUrl || null,
-          thumbnail_path: thumbPath || null,
+          thumbnail_path: thumbUrl || null,
           width: dimensions.width,
           height: dimensions.height,
-        },
+          iv: uploadResult.manifest.iv,
+          wrapped_key: uploadResult.manifest.wrapped_key,
+          ciphertext_sha256: uploadResult.manifest.ciphertext_sha256,
+          is_e2ee: true,
+        } as any,
       });
 
       setUploadStage('SENT');

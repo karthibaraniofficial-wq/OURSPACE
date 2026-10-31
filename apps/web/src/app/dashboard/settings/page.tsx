@@ -35,7 +35,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { playChime, ACCENT_PRESETS, type ChimeProfile } from '@ourspace/shared';
 import { cn } from '@/lib/utils';
-import { uploadProfilePictureToStorage } from '@/lib/firebase/storage';
+import { uploadEncryptedMedia } from '@/lib/media/mediaStorageService';
 import { isFirebaseConfigured } from '@/lib/firebase/firebase';
 
 
@@ -134,11 +134,15 @@ export default function SettingsPage() {
 
     try {
       if (isFirebaseConfigured()) {
-        const downloadUrl = await uploadProfilePictureToStorage(
-          user.id,
+        const uploadResult = await uploadEncryptedMedia({
           file,
-          (pct) => setAvatarUploadProgress(pct)
-        );
+          fileName: file.name || `avatar_${Date.now()}.jpg`,
+          spaceId: space?.id || `user_${user.id}`,
+          userId: user.id,
+          category: 'PROFILE_PHOTOS',
+          onProgress: (pct) => setAvatarUploadProgress(pct),
+        });
+        const downloadUrl = uploadResult.downloadUrl;
         setAvatarUrl(downloadUrl);
         await updateProfile({ avatar_url: downloadUrl });
         setSaveSuccess(true);

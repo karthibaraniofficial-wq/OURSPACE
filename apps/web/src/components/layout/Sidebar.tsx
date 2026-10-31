@@ -18,6 +18,7 @@ import {
   Smile,
   LogOut,
   Radio,
+  HardDrive,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useCallStore } from '@/store/useCallStore';
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/connect', label: 'Connection', icon: Smile },
   { href: '/dashboard/plans', label: 'Plans & Goals', icon: Compass },
   { href: '/dashboard/locker', label: 'OUR LOCKER', icon: Lock, isLocker: true },
+  { href: '/dashboard/admin/storage', label: '250 GB Storage', icon: HardDrive },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 

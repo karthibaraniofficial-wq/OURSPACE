@@ -329,3 +329,75 @@ export function formatPresenceStatus(
   return { isOnline: false, label: 'Offline' };
 }
 
+// ========================================================================
+// CENTRAL GOOGLE DRIVE FOLDER STRUCTURE & 250 GB QUOTA HELPERS
+// ========================================================================
+
+export const MAX_OURSPACE_STORAGE_BYTES = 250_000_000_000; // 250 GB
+export const STORAGE_WARNING_BYTES = 150_000_000_000; // 150 GB Warning
+export const STORAGE_CRITICAL_BYTES = 200_000_000_000; // 200 GB Critical
+
+export function getStorageWarningLevel(
+  usedBytes: number,
+  maxBytes: number = MAX_OURSPACE_STORAGE_BYTES
+): 'NORMAL' | 'WARNING' | 'CRITICAL' | 'EXCEEDED' {
+  if (usedBytes >= maxBytes) return 'EXCEEDED';
+  if (usedBytes >= STORAGE_CRITICAL_BYTES) return 'CRITICAL';
+  if (usedBytes >= STORAGE_WARNING_BYTES) return 'WARNING';
+  return 'NORMAL';
+}
+
+export function formatDecimalBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const gb = bytes / 1_000_000_000;
+  if (gb >= 1) return `${gb.toFixed(1)} GB`;
+  const mb = bytes / 1_000_000;
+  if (mb >= 1) return `${mb.toFixed(1)} MB`;
+  const kb = bytes / 1_000;
+  if (kb >= 1) return `${kb.toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+/**
+ * Returns canonical folder path under OURSPACE_STORAGE/ in Google Drive.
+ * Guarantees opaque IDs with zero personal names, emails, or captions.
+ */
+export function getDriveFolderPath(
+  category: string,
+  spaceId?: string | null,
+  userId?: string | null
+): string[] {
+  const normCat = category.toUpperCase().trim();
+
+  // 1. Private Locker subfolders
+  if (
+    normCat === 'ENCRYPTED_IMAGES' ||
+    normCat === 'ENCRYPTED_VIDEOS' ||
+    normCat === 'ENCRYPTED_DOCUMENTS' ||
+    normCat === 'ENCRYPTED_AUDIO' ||
+    normCat === 'ENCRYPTED_METADATA'
+  ) {
+    const userFolder = userId ? `user_${userId.replace(/[^a-zA-Z0-9_-]/g, '')}` : 'unknown_user';
+    return ['OURSPACE_STORAGE', 'PRIVATE_LOCKER', userFolder, normCat];
+  }
+
+  // 2. App backups subfolders
+  if (normCat === 'METADATA_EXPORTS' || normCat === 'RECOVERY_RECORDS') {
+    return ['OURSPACE_STORAGE', 'APP_BACKUPS', normCat];
+  }
+
+  // 3. Shared Media subfolders (mapped to spaceId)
+  const opaqueSpace = spaceId ? `space_${spaceId.replace(/[^a-zA-Z0-9_-]/g, '')}` : 'shared';
+  let targetFolder = 'CHAT_IMAGES';
+  if (normCat.includes('VIDEO')) targetFolder = 'CHAT_VIDEOS';
+  else if (normCat.includes('VOICE') || normCat.includes('AUDIO')) targetFolder = 'VOICE_NOTES';
+  else if (normCat.includes('DOC')) targetFolder = 'DOCUMENTS';
+  else if (normCat.includes('PROFILE') || normCat.includes('AVATAR')) targetFolder = 'PROFILE_PHOTOS';
+  else if (normCat.includes('STATUS')) targetFolder = 'STATUS_MEDIA';
+  else if (normCat.includes('ALBUM') || normCat.includes('MEMORY')) targetFolder = 'MEMORY_ALBUMS';
+  else if (normCat.includes('THUMB')) targetFolder = 'THUMBNAILS';
+
+  return ['OURSPACE_STORAGE', 'SHARED_MEDIA', opaqueSpace, targetFolder];
+}
+
+

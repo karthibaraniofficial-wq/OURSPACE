@@ -635,3 +635,95 @@ export interface LiveKitTokenResponse {
   room_name: string;
   server_url: string;
 }
+
+// ========================================================================
+// CENTRAL GOOGLE DRIVE & 250 GB QUOTA STORAGE SYSTEM
+// ========================================================================
+
+export const MAX_OURSPACE_STORAGE_BYTES = 250_000_000_000; // 250 GB in decimal bytes
+export const STORAGE_WARNING_BYTES = 150_000_000_000; // 150 GB warning
+export const STORAGE_CRITICAL_BYTES = 200_000_000_000; // 200 GB critical warning
+
+export type DriveMediaCategory =
+  | 'CHAT_IMAGES'
+  | 'CHAT_VIDEOS'
+  | 'VOICE_NOTES'
+  | 'DOCUMENTS'
+  | 'PROFILE_PHOTOS'
+  | 'STATUS_MEDIA'
+  | 'MEMORY_ALBUMS'
+  | 'THUMBNAILS'
+  | 'ENCRYPTED_IMAGES'
+  | 'ENCRYPTED_VIDEOS'
+  | 'ENCRYPTED_DOCUMENTS'
+  | 'ENCRYPTED_AUDIO'
+  | 'ENCRYPTED_METADATA'
+  | 'METADATA_EXPORTS'
+  | 'RECOVERY_RECORDS';
+
+export type StorageWarningLevel = 'NORMAL' | 'WARNING' | 'CRITICAL' | 'EXCEEDED';
+
+export interface StorageLedgerBreakdown {
+  shared_media_bytes: number;
+  locker_ciphertext_bytes: number;
+  video_bytes: number;
+  voice_note_bytes: number;
+  document_bytes: number;
+  thumbnail_bytes: number;
+  backup_bytes: number;
+}
+
+export interface StorageLedger {
+  max_storage_bytes: number;
+  verified_used_bytes: number;
+  reserved_upload_bytes: number;
+  available_bytes: number;
+  total_files_count: number;
+  breakdown: StorageLedgerBreakdown;
+  warning_level: StorageWarningLevel;
+  last_reconciliation_at: string | null;
+  updated_at: string;
+}
+
+export interface StorageReservation {
+  id: string;
+  space_id: string;
+  user_id: string;
+  category: DriveMediaCategory;
+  bytes: number;
+  status: 'RESERVED' | 'COMMITTED' | 'EXPIRED' | 'CANCELLED';
+  created_at: string;
+  expires_at: string;
+}
+
+export interface EncryptedMediaManifest {
+  drive_file_id: string;
+  space_id: string;
+  sender_id: string;
+  file_name: string;
+  file_size: number;
+  file_type: string;
+  media_category: 'image' | 'video' | 'document' | 'audio';
+  iv: string; // Hex or base64 12-byte nonce
+  wrapped_key: string; // Base64 AES-256 media key wrapped by space key
+  ciphertext_sha256: string;
+  thumbnail_drive_file_id?: string | null;
+  duration_seconds?: number | null;
+  width?: number | null;
+  height?: number | null;
+  is_e2ee: boolean;
+  created_at: string;
+}
+
+export interface DriveConnectionStatus {
+  is_connected: boolean;
+  account_email?: string | null;
+  root_folder_id?: string | null;
+  total_drive_capacity_bytes?: number | null;
+  total_drive_used_bytes?: number | null;
+  ourspace_used_bytes: number;
+  ourspace_max_bytes: number;
+  warning_level: StorageWarningLevel;
+  last_token_refresh_at?: string | null;
+}
+

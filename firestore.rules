@@ -185,5 +185,30 @@ service cloud.firestore {
         allow create: if isMemberOfSpace(spaceId);
       }
     }
+
+    // 4. Central Storage Ledger (250 GB Quota Accounting)
+    match /storageLedger/{docId} {
+      // Authenticated users can inspect global quota and warning state
+      allow read: if isAuthenticated();
+      // Direct client mutation is strictly forbidden: only trusted server transactions can mutate
+      allow write: if false;
+
+      match /reservations/{reservationId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+    }
+
+    // 5. Server Secret Admin Config (Drive OAuth & Admin Keys)
+    match /_admin_config/{docId} {
+      // Server SDK / API routes only: strictly denied to all client SDKs
+      allow read, write: if false;
+    }
+
+    // 6. Resumable Upload Sessions
+    match /uploadSessions/{sessionId} {
+      allow read, write: if isAuthenticated();
+    }
   }
 }
+
