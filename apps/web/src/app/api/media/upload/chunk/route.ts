@@ -69,9 +69,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      isComplete: forwardResult.isComplete,
-      nextRangeStart: forwardResult.nextRangeStart,
-      file: forwardResult.file || null,
+      completed: forwardResult.completed,
+      isComplete: forwardResult.completed,
+      file: forwardResult.fileId ? { id: forwardResult.fileId } : null,
     });
   } catch (err: any) {
     console.error('[Chunk Upload Error]', err);

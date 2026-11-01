@@ -345,7 +345,17 @@ export function InAppCameraModal({
                 <AlertCircle className="w-8 h-8" />
               </div>
               <p className="text-sm font-semibold text-white">{cameraError}</p>
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex flex-wrap justify-center items-center gap-2 mt-2">
+                {cameraError.includes('Google Drive') || cameraError.includes('Storage Manager') ? (
+                  <a
+                    href="/dashboard/admin/storage"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-md inline-flex items-center gap-1.5"
+                  >
+                    Open Storage Manager
+                  </a>
+                ) : null}
                 {capturedPhotoUrl && (
                   <button
                     type="button"

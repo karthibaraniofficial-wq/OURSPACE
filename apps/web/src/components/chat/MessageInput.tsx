@@ -636,6 +636,16 @@ export function MessageInput({ onOpenGiphy, onOpenEmoji }: MessageInputProps) {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {uploadError && (uploadError.includes('Central Google Drive') || uploadError.includes('Google Drive')) && (
+              <a
+                href="/dashboard/admin/storage"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] flex items-center gap-1 transition-colors shadow-sm"
+              >
+                <span>Connect Storage</span>
+              </a>
+            )}
             {uploadError && stagedMediaList.length > 0 && (
               <button
                 type="button"

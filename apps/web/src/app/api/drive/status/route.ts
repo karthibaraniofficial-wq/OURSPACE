@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getValidDriveAccessToken,
   getCentralGoogleAccountStorage,
-  getGoogleOAuthCredentials,
+  getEffectiveGoogleCredentials,
 } from '@/lib/drive/googleDriveService';
 import { getStorageLedger, reconcileStorageLedger } from '@/lib/storage/storageLedger';
 import type { DriveConnectionStatus } from '@ourspace/types';
@@ -13,9 +13,12 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
     const shouldReconcile = searchParams.get('reconcile') === 'true';
 
+    const creds = await getEffectiveGoogleCredentials();
+
     // 1. Check Google Drive API connection
     let isConnected = false;
     let driveError: string | null = null;
+    let accountEmail: string | null = creds.accountEmail;
     let googleStorage = {
       limitBytes: null as number | null,
       usageBytes: null as number | null,
@@ -27,7 +30,16 @@ export async function GET(req: NextRequest) {
       const token = await getValidDriveAccessToken();
       if (token) {
         isConnected = true;
-        googleStorage = await getCentralGoogleAccountStorage();
+        const resStorage = await getCentralGoogleAccountStorage();
+        googleStorage = {
+          limitBytes: resStorage.limitBytes,
+          usageBytes: resStorage.usageBytes,
+          usageInDriveBytes: resStorage.usageInDriveBytes,
+          usageInDriveTrashBytes: resStorage.usageInDriveTrashBytes,
+        };
+        if (resStorage.email) {
+          accountEmail = resStorage.email;
+        }
       }
     } catch (err: any) {
       driveError = err.message || 'Drive connection error';
@@ -36,12 +48,10 @@ export async function GET(req: NextRequest) {
     // 2. Retrieve authoritative OURSPACE 250 GB storage ledger
     const ledger = shouldReconcile ? await reconcileStorageLedger() : await getStorageLedger();
 
-    const { configuredRootFolderId } = getGoogleOAuthCredentials();
-
     const statusResponse: DriveConnectionStatus = {
       is_connected: isConnected,
-      account_email: null,
-      root_folder_id: configuredRootFolderId || 'OURSPACE_STORAGE',
+      account_email: accountEmail,
+      root_folder_id: creds.configuredRootFolderId || 'OURSPACE_STORAGE',
       total_drive_capacity_bytes: googleStorage.limitBytes,
       total_drive_used_bytes: googleStorage.usageBytes,
       ourspace_used_bytes: ledger.verified_used_bytes + ledger.reserved_upload_bytes,
@@ -55,6 +65,15 @@ export async function GET(req: NextRequest) {
       status: statusResponse,
       ledger,
       googleAccountStorage: googleStorage,
+      diagnostics: {
+        has_client_id: Boolean(creds.clientId),
+        client_id_preview: creds.clientId ? `${creds.clientId.slice(0, 16)}...` : null,
+        has_client_secret: Boolean(creds.clientSecret),
+        has_refresh_token: Boolean(creds.refreshToken),
+        has_active_token: Boolean(creds.accessToken && creds.accessTokenExpiresAt > Date.now()),
+        has_firestore_doc: creds.hasFirestoreDoc,
+        redirect_uri: creds.redirectUri,
+      },
       error: driveError,
     });
   } catch (err: any) {

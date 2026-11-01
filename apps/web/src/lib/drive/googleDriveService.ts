@@ -39,7 +39,7 @@ let memoryTokenCache: CachedToken | null = null;
 const folderIdCache = new Map<string, string>();
 
 /**
- * Retrieves server-side Google OAuth client credentials
+ * Retrieves server-side Google OAuth client credentials from environment
  */
 export function getGoogleOAuthCredentials() {
   return {
@@ -54,21 +54,55 @@ export function getGoogleOAuthCredentials() {
 }
 
 /**
- * Returns OAuth authorization URL for administrator to connect their central Google AI Pro account
+ * Resolves effective credentials by checking environment variables first,
+ * followed by server-stored credentials in Firestore `_admin_config/drive_oauth`.
  */
-export function getGoogleAuthorizationUrl(state: string): string {
+export async function getEffectiveGoogleCredentials() {
+  const envCreds = getGoogleOAuthCredentials();
+  let firestoreDoc: Record<string, any> | null = null;
+
+  if (isFirebaseConfigured()) {
+    try {
+      const db = getFirebaseFirestore();
+      const snap = await getDoc(doc(db, '_admin_config', 'drive_oauth'));
+      if (snap.exists()) {
+        firestoreDoc = snap.data();
+      }
+    } catch (err) {
+      console.warn('[GoogleDrive] Could not fetch _admin_config/drive_oauth:', err);
+    }
+  }
+
+  return {
+    clientId: envCreds.clientId || firestoreDoc?.clientId || '',
+    clientSecret: envCreds.clientSecret || firestoreDoc?.clientSecret || '',
+    redirectUri: envCreds.redirectUri,
+    refreshToken: envCreds.configuredRefreshToken || firestoreDoc?.refreshToken || '',
+    accessToken: (firestoreDoc?.accessToken as string) || null,
+    accessTokenExpiresAt: Number(firestoreDoc?.accessTokenExpiresAt || 0),
+    accountEmail: (firestoreDoc?.accountEmail as string) || null,
+    configuredRootFolderId: envCreds.configuredRootFolderId || 'OURSPACE_STORAGE',
+    hasFirestoreDoc: Boolean(firestoreDoc),
+  };
+}
+
+/**
+ * Returns OAuth authorization URL for administrator to connect their central Google account
+ */
+export function getGoogleAuthorizationUrl(state: string, clientIdOverride?: string): string {
   const { clientId, redirectUri } = getGoogleOAuthCredentials();
-  if (!clientId) {
+  const effectiveClientId = clientIdOverride || clientId;
+  if (!effectiveClientId) {
     throw new Error('GOOGLE_CLIENT_ID is not configured in server environment variables.');
   }
 
   const params = new URLSearchParams({
-    client_id: clientId,
+    client_id: effectiveClientId,
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: DRIVE_FILE_SCOPE,
     access_type: 'offline',
-    prompt: 'consent', // Forces refresh token issuance
+    prompt: 'consent select_account', // Forces Google to show consent screen and issue refresh token
     state,
   });
 
@@ -76,12 +110,13 @@ export function getGoogleAuthorizationUrl(state: string): string {
 }
 
 /**
- * Exchanges authorization code for access and refresh tokens, saving refresh token to server store
+ * Exchanges authorization code for access and refresh tokens, saving tokens to Firestore store
  */
 export async function handleOAuthCallback(code: string): Promise<{ success: boolean; email?: string; error?: string }> {
-  const { clientId, clientSecret, redirectUri } = getGoogleOAuthCredentials();
+  const creds = await getEffectiveGoogleCredentials();
+  const { clientId, clientSecret, redirectUri } = creds;
   if (!clientId || !clientSecret) {
-    return { success: false, error: 'Google OAuth credentials missing on server.' };
+    return { success: false, error: 'Google OAuth credentials (Client ID or Client Secret) are missing on the server.' };
   }
 
   try {
@@ -99,15 +134,18 @@ export async function handleOAuthCallback(code: string): Promise<{ success: bool
 
     const data = await res.json();
     if (!res.ok || !data.access_token) {
-      return { success: false, error: data.error_description || data.error || 'Failed to exchange OAuth code.' };
+      const desc = data.error_description || data.error || 'Failed to exchange authorization code.';
+      console.error('[GoogleDrive] OAuth code exchange failed:', data);
+      return { success: false, error: desc };
     }
 
     const { access_token, refresh_token, expires_in } = data;
+    const expiresAt = Date.now() + ((expires_in || 3600) - 60) * 1000;
 
     // Cache access token in memory
     memoryTokenCache = {
       accessToken: access_token,
-      expiresAt: Date.now() + (expires_in - 60) * 1000,
+      expiresAt,
     };
 
     // Retrieve account info
@@ -122,27 +160,136 @@ export async function handleOAuthCallback(code: string): Promise<{ success: bool
       }
     } catch {}
 
-    // Persist refresh token to server-only Firestore collection `_admin_config/drive_oauth`
-    if (isFirebaseConfigured() && refresh_token) {
+    // Persist tokens to server Firestore collection `_admin_config/drive_oauth`
+    if (isFirebaseConfigured()) {
       try {
         const db = getFirebaseFirestore();
-        await setDoc(
-          doc(db, '_admin_config', 'drive_oauth'),
-          {
-            refreshToken: refresh_token,
-            accountEmail: accountEmail || null,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-      } catch (dbErr) {
-        console.warn('[GoogleDrive] Warning: Could not save refresh token to Firestore:', dbErr);
+        const payload: Record<string, unknown> = {
+          accessToken: access_token,
+          accessTokenExpiresAt: expiresAt,
+          accountEmail: accountEmail || null,
+          updatedAt: new Date().toISOString(),
+        };
+        if (refresh_token) {
+          payload.refreshToken = refresh_token;
+        }
+        await setDoc(doc(db, '_admin_config', 'drive_oauth'), payload, { merge: true });
+      } catch (dbErr: any) {
+        console.error('[GoogleDrive] Failed to persist tokens to Firestore:', dbErr);
+        return {
+          success: false,
+          error: `Google authorized, but failed to save credentials into database: ${dbErr?.message || dbErr}`,
+        };
       }
     }
 
     return { success: true, email: accountEmail };
   } catch (err: any) {
     return { success: false, error: err.message || 'OAuth token exchange network failure.' };
+  }
+}
+
+/**
+ * Saves and validates manually provided Google Drive credentials directly
+ */
+export async function saveAdminDriveCredentials(params: {
+  refreshToken?: string;
+  clientId?: string;
+  clientSecret?: string;
+}): Promise<{ success: boolean; email?: string; error?: string }> {
+  const current = await getEffectiveGoogleCredentials();
+  const clientId = params.clientId?.trim() || current.clientId;
+  const clientSecret = params.clientSecret?.trim() || current.clientSecret;
+  const refreshToken = params.refreshToken?.trim() || current.refreshToken;
+
+  if (!refreshToken) {
+    return { success: false, error: 'A valid Google Drive Refresh Token is required.' };
+  }
+  if (!clientId || !clientSecret) {
+    return { success: false, error: 'Google Client ID and Client Secret are required to verify the Refresh Token.' };
+  }
+
+  try {
+    const res = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.access_token) {
+      return {
+        success: false,
+        error: `Google verification failed: ${data.error_description || data.error || 'Invalid refresh token'}`,
+      };
+    }
+
+    const expiresAt = Date.now() + ((data.expires_in || 3600) - 60) * 1000;
+    memoryTokenCache = {
+      accessToken: data.access_token,
+      expiresAt,
+    };
+
+    let accountEmail: string | undefined;
+    try {
+      const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${data.access_token}` },
+      });
+      if (userRes.ok) {
+        const u = await userRes.json();
+        accountEmail = u.email;
+      }
+    } catch {}
+
+    if (isFirebaseConfigured()) {
+      const db = getFirebaseFirestore();
+      const payload: Record<string, unknown> = {
+        refreshToken,
+        accessToken: data.access_token,
+        accessTokenExpiresAt: expiresAt,
+        accountEmail: accountEmail || null,
+        updatedAt: new Date().toISOString(),
+      };
+      if (params.clientId?.trim()) payload.clientId = params.clientId.trim();
+      if (params.clientSecret?.trim()) payload.clientSecret = params.clientSecret.trim();
+
+      await setDoc(doc(db, '_admin_config', 'drive_oauth'), payload, { merge: true });
+    }
+
+    return { success: true, email: accountEmail };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error verifying credentials with Google.' };
+  }
+}
+
+/**
+ * Disconnects the central Google account
+ */
+export async function disconnectAdminDrive(): Promise<void> {
+  memoryTokenCache = null;
+  folderIdCache.clear();
+  if (isFirebaseConfigured()) {
+    try {
+      const db = getFirebaseFirestore();
+      await setDoc(
+        doc(db, '_admin_config', 'drive_oauth'),
+        {
+          refreshToken: null,
+          accessToken: null,
+          accessTokenExpiresAt: null,
+          accountEmail: null,
+          disconnectedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn('[GoogleDrive] Disconnect error:', err);
+    }
   }
 }
 
@@ -155,23 +302,27 @@ export async function getValidDriveAccessToken(): Promise<string> {
     return memoryTokenCache.accessToken;
   }
 
-  // 2. Resolve refresh token (env var takes precedence, followed by Firestore admin config)
-  const { clientId, clientSecret, configuredRefreshToken } = getGoogleOAuthCredentials();
-  let refreshToken = configuredRefreshToken;
+  // 2. Resolve credentials & tokens from Firestore and environment
+  const creds = await getEffectiveGoogleCredentials();
 
-  if (!refreshToken && isFirebaseConfigured()) {
-    try {
-      const db = getFirebaseFirestore();
-      const snap = await getDoc(doc(db, '_admin_config', 'drive_oauth'));
-      if (snap.exists()) {
-        refreshToken = snap.data().refreshToken || '';
-      }
-    } catch {}
+  // If the access token saved in Firestore is still valid, use it immediately
+  if (creds.accessToken && creds.accessTokenExpiresAt > Date.now()) {
+    memoryTokenCache = {
+      accessToken: creds.accessToken,
+      expiresAt: creds.accessTokenExpiresAt,
+    };
+    return creds.accessToken;
   }
 
-  if (!refreshToken) {
+  if (!creds.refreshToken) {
     throw new Error(
       'Central Google Drive is not connected. Administrator must authorize via /dashboard/admin/storage.'
+    );
+  }
+
+  if (!creds.clientId || !creds.clientSecret) {
+    throw new Error(
+      'Google Client ID or Client Secret missing. Check environment variables or Storage Manager.'
     );
   }
 
@@ -180,9 +331,9 @@ export async function getValidDriveAccessToken(): Promise<string> {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
+      refresh_token: creds.refreshToken,
       grant_type: 'refresh_token',
     }),
   });
@@ -194,10 +345,27 @@ export async function getValidDriveAccessToken(): Promise<string> {
     );
   }
 
+  const newExpiresAt = Date.now() + ((data.expires_in || 3600) - 60) * 1000;
   memoryTokenCache = {
     accessToken: data.access_token,
-    expiresAt: Date.now() + ((data.expires_in || 3600) - 60) * 1000,
+    expiresAt: newExpiresAt,
   };
+
+  // Update fresh access token in Firestore as well
+  if (isFirebaseConfigured()) {
+    try {
+      const db = getFirebaseFirestore();
+      await setDoc(
+        doc(db, '_admin_config', 'drive_oauth'),
+        {
+          accessToken: data.access_token,
+          accessTokenExpiresAt: newExpiresAt,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch {}
+  }
 
   return memoryTokenCache.accessToken;
 }
@@ -302,44 +470,47 @@ export async function createDriveResumableUploadSession(
     parents: [parentFolderId],
   };
 
-  const res = await fetch(`${GOOGLE_DRIVE_UPLOAD_BASE}?uploadType=resumable`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json; charset=UTF-8',
-      'X-Upload-Content-Type': mimeType || 'application/octet-stream',
-      'X-Upload-Content-Length': totalBytes.toString(),
-    },
-    body: JSON.stringify(metadata),
-  });
+  const res = await fetch(
+    `${GOOGLE_DRIVE_UPLOAD_BASE}?uploadType=resumable&supportsAllDrives=true`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': mimeType || 'application/octet-stream',
+        'X-Upload-Content-Length': totalBytes.toString(),
+      },
+      body: JSON.stringify(metadata),
+    }
+  );
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Failed to initiate Drive resumable upload session: ${res.status} ${err}`);
+    const errText = await res.text();
+    throw new Error(`Failed to initiate Drive resumable upload session: ${errText}`);
   }
 
-  const uploadUrl = res.headers.get('Location');
+  const uploadUrl = res.headers.get('location');
   if (!uploadUrl) {
-    throw new Error('Google Drive did not return a resumable upload Location header.');
+    throw new Error('Drive API did not return resumable session Location header.');
   }
 
   return { uploadUrl };
 }
 
 /**
- * Forwards an upload chunk buffer to the Google Drive resumable upload session
+ * Forwards a binary chunk to an active Google Drive resumable upload session
  */
 export async function forwardChunkToDrive(
-  uploadUrl: string,
+  driveUploadUrl: string,
   chunkBuffer: Buffer | Uint8Array,
   rangeStart: number,
   rangeEnd: number,
   totalBytes: number
-): Promise<{ isComplete: boolean; file?: any; nextRangeStart?: number }> {
+): Promise<{ completed: boolean; fileId?: string }> {
   const contentLength = rangeEnd - rangeStart + 1;
   const contentRange = `bytes ${rangeStart}-${rangeEnd}/${totalBytes}`;
 
-  const res = await fetch(uploadUrl, {
+  const res = await fetch(driveUploadUrl, {
     method: 'PUT',
     headers: {
       'Content-Length': contentLength.toString(),
@@ -348,23 +519,15 @@ export async function forwardChunkToDrive(
     body: chunkBuffer as any,
   });
 
-  if (res.status === 200 || res.status === 201) {
-    // Upload finished! File metadata returned
-    const file = await res.json();
-    return { isComplete: true, file };
+  // 308 Resume Incomplete = Chunk accepted, more chunks needed
+  if (res.status === 308) {
+    return { completed: false };
   }
 
-  if (res.status === 308) {
-    // Resume Incomplete (standard Google Drive response for chunk received)
-    const rangeHeader = res.headers.get('Range');
-    let nextStart = rangeEnd + 1;
-    if (rangeHeader) {
-      const match = rangeHeader.match(/bytes=0-(\d+)/);
-      if (match) {
-        nextStart = parseInt(match[1], 10) + 1;
-      }
-    }
-    return { isComplete: false, nextRangeStart: nextStart };
+  // 200 OK or 201 Created = Upload complete
+  if (res.ok) {
+    const data = await res.json();
+    return { completed: true, fileId: data.id };
   }
 
   const errText = await res.text();
@@ -372,33 +535,36 @@ export async function forwardChunkToDrive(
 }
 
 /**
- * Fetches file metadata from Google Drive
+ * Retrieves file metadata from Google Drive
  */
 export async function getDriveFileMetadata(fileId: string): Promise<any> {
   const accessToken = await getValidDriveAccessToken();
   const res = await fetch(
-    `${GOOGLE_DRIVE_API_BASE}/files/${fileId}?fields=id,name,mimeType,size,md5Checksum,createdTime`,
+    `${GOOGLE_DRIVE_API_BASE}/files/${fileId}?fields=id,name,mimeType,size,createdTime,md5Checksum`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
     }
   );
 
   if (!res.ok) {
-    throw new Error(`Drive file not found or inaccessible: ${res.status}`);
+    throw new Error(`Drive metadata lookup failed: HTTP ${res.status}`);
   }
 
-  return await res.json();
+  return res.json();
 }
 
 /**
- * Streams or downloads file bytes directly from Google Drive (for authenticated media gateway)
+ * Fetches authenticated media stream from Google Drive with optional Range header
  */
 export async function fetchDriveMediaStream(
   fileId: string,
   rangeHeader?: string | null
-): Promise<{ status: number; headers: Record<string, string>; body: ReadableStream<Uint8Array> | null }> {
+): Promise<{
+  body: ReadableStream<Uint8Array> | null;
+  status: number;
+  headers: Record<string, string>;
+}> {
   const accessToken = await getValidDriveAccessToken();
-
   const reqHeaders: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
   };
@@ -412,19 +578,20 @@ export async function fetchDriveMediaStream(
   });
 
   const responseHeaders: Record<string, string> = {};
-  res.headers.forEach((val, key) => {
-    responseHeaders[key] = val;
+  ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag'].forEach((h) => {
+    const val = res.headers.get(h);
+    if (val) responseHeaders[h] = val;
   });
 
   return {
+    body: res.body,
     status: res.status,
     headers: responseHeaders,
-    body: res.body,
   };
 }
 
 /**
- * Deletes a file from Google Drive
+ * Deletes a file permanently from central Google Drive
  */
 export async function deleteDriveFile(fileId: string): Promise<void> {
   const accessToken = await getValidDriveAccessToken();
@@ -435,13 +602,14 @@ export async function deleteDriveFile(fileId: string): Promise<void> {
 }
 
 /**
- * Retrieves the central Google Account storage quota details from Drive API
+ * Retrieves the central Google Account storage quota and user details from Drive API
  */
 export async function getCentralGoogleAccountStorage(): Promise<{
   limitBytes: number | null;
   usageBytes: number | null;
   usageInDriveBytes: number | null;
   usageInDriveTrashBytes: number | null;
+  email?: string | null;
 }> {
   try {
     const accessToken = await getValidDriveAccessToken();
@@ -451,11 +619,13 @@ export async function getCentralGoogleAccountStorage(): Promise<{
     if (res.ok) {
       const data = await res.json();
       const quota = data.storageQuota || {};
+      const user = data.user || {};
       return {
         limitBytes: quota.limit ? parseInt(quota.limit, 10) : null,
         usageBytes: quota.usage ? parseInt(quota.usage, 10) : null,
         usageInDriveBytes: quota.usageInDrive ? parseInt(quota.usageInDrive, 10) : null,
         usageInDriveTrashBytes: quota.usageInDriveTrash ? parseInt(quota.usageInDriveTrash, 10) : null,
+        email: user.emailAddress || null,
       };
     }
   } catch {}
@@ -465,5 +635,6 @@ export async function getCentralGoogleAccountStorage(): Promise<{
     usageBytes: null,
     usageInDriveBytes: null,
     usageInDriveTrashBytes: null,
+    email: null,
   };
 }
