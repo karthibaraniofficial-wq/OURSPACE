@@ -57,7 +57,7 @@ function AdminStorageContent() {
   );
 
   // Manual direct setup form
-  const [showManualSetup, setShowManualSetup] = useState(false);
+  const [showManualSetup, setShowManualSetup] = useState(Boolean(urlError));
   const [manualRefreshToken, setManualRefreshToken] = useState('');
   const [manualClientId, setManualClientId] = useState('');
   const [manualClientSecret, setManualClientSecret] = useState('');
@@ -111,8 +111,8 @@ function AdminStorageContent() {
 
   const handleSaveManualCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualRefreshToken.trim()) {
-      setError('Please provide a Google Drive Refresh Token.');
+    if (!manualClientSecret.trim() && !manualRefreshToken.trim() && !manualClientId.trim()) {
+      setError('Please provide a Google Client Secret, Client ID, or Refresh Token.');
       return;
     }
     setSavingManual(true);
@@ -124,7 +124,7 @@ function AdminStorageContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'save',
-          refreshToken: manualRefreshToken.trim(),
+          refreshToken: manualRefreshToken.trim() || undefined,
           clientId: manualClientId.trim() || undefined,
           clientSecret: manualClientSecret.trim() || undefined,
         }),
@@ -132,9 +132,8 @@ function AdminStorageContent() {
 
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg(`Google Drive connected! Account: ${data.email || 'Central Account'}`);
+        setSuccessMsg(data.message || `Google Drive credentials saved! Account: ${data.email || 'Configured'}`);
         setManualRefreshToken('');
-        setManualClientId('');
         setManualClientSecret('');
         setShowManualSetup(false);
         fetchStatus(true);
@@ -552,25 +551,31 @@ function AdminStorageContent() {
 
             <div>
               <label className="text-[11px] font-semibold text-stone-600 dark:text-zinc-300 block mb-1">
-                Google Refresh Token (from OAuth Playground or Token Exchange)
+                Google Refresh Token (Optional - only if using pre-generated offline token)
               </label>
               <input
                 type="password"
                 placeholder="1//04..."
                 value={manualRefreshToken}
                 onChange={(e) => setManualRefreshToken(e.target.value)}
-                required
                 className="w-full text-xs p-2.5 rounded-xl border border-stone-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-stone-900 dark:text-zinc-100 font-mono"
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-between items-center gap-2 pt-2 flex-wrap">
+              <span className="text-[11px] text-stone-500 dark:text-zinc-400">
+                Pasting the Client Secret overrides any invalid Vercel env variable immediately.
+              </span>
               <Button
                 type="submit"
                 disabled={savingManual}
-                className="bg-purple-600 hover:bg-purple-700 text-white text-xs"
+                className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold"
               >
-                {savingManual ? 'Verifying with Google...' : 'Save & Connect Credentials'}
+                {savingManual
+                  ? 'Saving...'
+                  : manualRefreshToken
+                  ? 'Verify & Connect with Token'
+                  : 'Save Client Secret & Reconnect'}
               </Button>
             </div>
           </form>

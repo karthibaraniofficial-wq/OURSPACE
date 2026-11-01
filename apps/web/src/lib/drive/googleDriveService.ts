@@ -73,16 +73,23 @@ export async function getEffectiveGoogleCredentials() {
     }
   }
 
+  // Priority: Firestore database overrides environment variables.
+  // This allows administrators to fix or update invalid client secrets instantly without requiring a Vercel redeployment.
+  const clientId = (firestoreDoc?.clientId as string) || envCreds.clientId || '';
+  const clientSecret = (firestoreDoc?.clientSecret as string) || envCreds.clientSecret || '';
+  const refreshToken = (firestoreDoc?.refreshToken as string) || envCreds.configuredRefreshToken || '';
+
   return {
-    clientId: envCreds.clientId || firestoreDoc?.clientId || '',
-    clientSecret: envCreds.clientSecret || firestoreDoc?.clientSecret || '',
+    clientId: clientId.trim(),
+    clientSecret: clientSecret.trim().replace(/^["']|["']$/g, ''),
     redirectUri: envCreds.redirectUri,
-    refreshToken: envCreds.configuredRefreshToken || firestoreDoc?.refreshToken || '',
+    refreshToken: refreshToken.trim(),
     accessToken: (firestoreDoc?.accessToken as string) || null,
     accessTokenExpiresAt: Number(firestoreDoc?.accessTokenExpiresAt || 0),
     accountEmail: (firestoreDoc?.accountEmail as string) || null,
     configuredRootFolderId: envCreds.configuredRootFolderId || 'OURSPACE_STORAGE',
     hasFirestoreDoc: Boolean(firestoreDoc),
+    isSecretFromDatabase: Boolean(firestoreDoc?.clientSecret),
   };
 }
 
@@ -196,75 +203,101 @@ export async function saveAdminDriveCredentials(params: {
   refreshToken?: string;
   clientId?: string;
   clientSecret?: string;
-}): Promise<{ success: boolean; email?: string; error?: string }> {
+}): Promise<{ success: boolean; email?: string; message?: string; error?: string }> {
   const current = await getEffectiveGoogleCredentials();
-  const clientId = params.clientId?.trim() || current.clientId;
-  const clientSecret = params.clientSecret?.trim() || current.clientSecret;
-  const refreshToken = params.refreshToken?.trim() || current.refreshToken;
+  const clientId = params.clientId?.trim().replace(/^["']|["']$/g, '') || current.clientId;
+  const clientSecret = params.clientSecret?.trim().replace(/^["']|["']$/g, '') || current.clientSecret;
+  const refreshToken = params.refreshToken?.trim().replace(/^["']|["']$/g, '');
 
-  if (!refreshToken) {
-    return { success: false, error: 'A valid Google Drive Refresh Token is required.' };
-  }
-  if (!clientId || !clientSecret) {
-    return { success: false, error: 'Google Client ID and Client Secret are required to verify the Refresh Token.' };
+  if (!clientId && !clientSecret && !refreshToken) {
+    return { success: false, error: 'Please enter a Google Client Secret, Client ID, or Refresh Token.' };
   }
 
-  try {
-    const res = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-        grant_type: 'refresh_token',
-      }),
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.access_token) {
-      return {
-        success: false,
-        error: `Google verification failed: ${data.error_description || data.error || 'Invalid refresh token'}`,
-      };
+  // If a Refresh Token is provided, verify it directly with Google
+  if (refreshToken) {
+    if (!clientId || !clientSecret) {
+      return { success: false, error: 'Google Client ID and Client Secret are required to verify the Refresh Token.' };
     }
 
-    const expiresAt = Date.now() + ((data.expires_in || 3600) - 60) * 1000;
-    memoryTokenCache = {
-      accessToken: data.access_token,
-      expiresAt,
-    };
-
-    let accountEmail: string | undefined;
     try {
-      const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-        headers: { Authorization: `Bearer ${data.access_token}` },
+      const res = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }),
       });
-      if (userRes.ok) {
-        const u = await userRes.json();
-        accountEmail = u.email;
-      }
-    } catch {}
 
-    if (isFirebaseConfigured()) {
+      const data = await res.json();
+      if (!res.ok || !data.access_token) {
+        return {
+          success: false,
+          error: `Google verification failed: ${data.error_description || data.error || 'Invalid refresh token'}`,
+        };
+      }
+
+      const expiresAt = Date.now() + ((data.expires_in || 3600) - 60) * 1000;
+      memoryTokenCache = {
+        accessToken: data.access_token,
+        expiresAt,
+      };
+
+      let accountEmail: string | undefined;
+      try {
+        const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${data.access_token}` },
+        });
+        if (userRes.ok) {
+          const u = await userRes.json();
+          accountEmail = u.email;
+        }
+      } catch {}
+
+      if (isFirebaseConfigured()) {
+        const db = getFirebaseFirestore();
+        const payload: Record<string, unknown> = {
+          refreshToken,
+          accessToken: data.access_token,
+          accessTokenExpiresAt: expiresAt,
+          accountEmail: accountEmail || null,
+          updatedAt: new Date().toISOString(),
+        };
+        if (params.clientId?.trim()) payload.clientId = clientId;
+        if (params.clientSecret?.trim()) payload.clientSecret = clientSecret;
+
+        await setDoc(doc(db, '_admin_config', 'drive_oauth'), payload, { merge: true });
+      }
+
+      return { success: true, email: accountEmail, message: 'Google Drive connected successfully!' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error verifying credentials with Google.' };
+    }
+  }
+
+  // User is updating Client Secret / Client ID to fix invalid secret error
+  if (isFirebaseConfigured()) {
+    try {
       const db = getFirebaseFirestore();
       const payload: Record<string, unknown> = {
-        refreshToken,
-        accessToken: data.access_token,
-        accessTokenExpiresAt: expiresAt,
-        accountEmail: accountEmail || null,
         updatedAt: new Date().toISOString(),
       };
-      if (params.clientId?.trim()) payload.clientId = params.clientId.trim();
-      if (params.clientSecret?.trim()) payload.clientSecret = params.clientSecret.trim();
+      if (params.clientId?.trim()) payload.clientId = clientId;
+      if (params.clientSecret?.trim()) payload.clientSecret = clientSecret;
 
       await setDoc(doc(db, '_admin_config', 'drive_oauth'), payload, { merge: true });
+      return {
+        success: true,
+        message: 'Google Client Secret saved! Please now click "Connect Google Drive" to authenticate.',
+      };
+    } catch (dbErr: any) {
+      return { success: false, error: `Failed to save credentials to database: ${dbErr?.message || dbErr}` };
     }
-
-    return { success: true, email: accountEmail };
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Network error verifying credentials with Google.' };
   }
+
+  return { success: true, message: 'Google credentials updated.' };
 }
 
 /**

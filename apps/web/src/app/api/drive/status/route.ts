@@ -69,6 +69,7 @@ export async function GET(req: NextRequest) {
         has_client_id: Boolean(creds.clientId),
         client_id_preview: creds.clientId ? `${creds.clientId.slice(0, 16)}...` : null,
         has_client_secret: Boolean(creds.clientSecret),
+        is_secret_from_database: creds.isSecretFromDatabase,
         has_refresh_token: Boolean(creds.refreshToken),
         has_active_token: Boolean(creds.accessToken && creds.accessTokenExpiresAt > Date.now()),
         has_firestore_doc: creds.hasFirestoreDoc,

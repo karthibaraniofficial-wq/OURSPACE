@@ -26,7 +26,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: result.error }, { status: 400 });
       }
 
-      return NextResponse.json({ success: true, email: result.email });
+      return NextResponse.json({
+        success: true,
+        email: result.email,
+        message: result.message,
+      });
     }
 
     return NextResponse.json({ success: false, error: 'Invalid action provided.' }, { status: 400 });
