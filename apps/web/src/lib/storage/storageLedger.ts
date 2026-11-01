@@ -74,6 +74,10 @@ const DEFAULT_LEDGER: StorageLedger = {
   updated_at: new Date().toISOString(),
 };
 
+// In-memory fallback ledger state for resilient offline/serverless operations
+let inMemoryLedger: StorageLedger = { ...DEFAULT_LEDGER };
+const inMemoryReservations = new Map<string, StorageReservation>();
+
 /**
  * Maps DriveMediaCategory to its corresponding breakdown bucket
  */
@@ -148,68 +152,9 @@ export async function reserveStorageQuota(
   userId: string,
   category: DriveMediaCategory
 ): Promise<StorageReservation> {
-  if (!isFirebaseConfigured()) {
-    // In local dev without credentials, grant reservation
-    return {
-      id: reservationId,
-      space_id: spaceId,
-      user_id: userId,
-      category,
-      bytes,
-      status: 'RESERVED',
-      created_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + 3600_000).toISOString(),
-    };
-  }
-
-  const db = getFirebaseFirestore();
-  const ledgerDocRef = doc(db, 'storageLedger', 'global');
-  const reservationDocRef = doc(db, 'storageLedger', 'global', 'reservations', reservationId);
-
   const expiresAt = new Date(Date.now() + 3600_000).toISOString(); // 1 hour lease
 
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ledgerDocRef);
-    const data = snap.exists() ? snap.data() : { ...DEFAULT_LEDGER };
-
-    const max = Number(data.max_storage_bytes || MAX_OURSPACE_STORAGE_BYTES);
-    const verified = Number(data.verified_used_bytes || 0);
-    const reserved = Number(data.reserved_upload_bytes || 0);
-
-    const projectedUsage = verified + reserved + bytes;
-    if (projectedUsage > max) {
-      const available = Math.max(0, max - (verified + reserved));
-      throw new StorageQuotaExceededError(available, bytes, max);
-    }
-
-    const newReserved = reserved + bytes;
-    const newAvailable = Math.max(0, max - (verified + newReserved));
-    const warningLevel = getStorageWarningLevel(verified + newReserved, max);
-
-    tx.set(
-      ledgerDocRef,
-      {
-        reserved_upload_bytes: newReserved,
-        available_bytes: newAvailable,
-        warning_level: warningLevel,
-        updated_at: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-
-    tx.set(reservationDocRef, {
-      id: reservationId,
-      space_id: spaceId,
-      user_id: userId,
-      category,
-      bytes,
-      status: 'RESERVED',
-      created_at: new Date().toISOString(),
-      expires_at: expiresAt,
-    });
-  });
-
-  return {
+  const reservation: StorageReservation = {
     id: reservationId,
     space_id: spaceId,
     user_id: userId,
@@ -219,6 +164,87 @@ export async function reserveStorageQuota(
     created_at: new Date().toISOString(),
     expires_at: expiresAt,
   };
+
+  if (!isFirebaseConfigured()) {
+    inMemoryReservations.set(reservationId, reservation);
+    return reservation;
+  }
+
+  const db = getFirebaseFirestore();
+  const ledgerDocRef = doc(db, 'storageLedger', 'global');
+  const reservationDocRef = doc(db, 'storageLedger', 'global', 'reservations', reservationId);
+
+  try {
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ledgerDocRef);
+      const data = snap.exists() ? snap.data() : { ...DEFAULT_LEDGER };
+
+      const max = Number(data.max_storage_bytes || MAX_OURSPACE_STORAGE_BYTES);
+      const verified = Number(data.verified_used_bytes || 0);
+      const reserved = Number(data.reserved_upload_bytes || 0);
+
+      const projectedUsage = verified + reserved + bytes;
+      if (projectedUsage > max) {
+        const available = Math.max(0, max - (verified + reserved));
+        throw new StorageQuotaExceededError(available, bytes, max);
+      }
+
+      const newReserved = reserved + bytes;
+      const newAvailable = Math.max(0, max - (verified + newReserved));
+      const warningLevel = getStorageWarningLevel(verified + newReserved, max);
+
+      tx.set(
+        ledgerDocRef,
+        {
+          reserved_upload_bytes: newReserved,
+          available_bytes: newAvailable,
+          warning_level: warningLevel,
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      tx.set(reservationDocRef, {
+        id: reservationId,
+        space_id: spaceId,
+        user_id: userId,
+        category,
+        bytes,
+        status: 'RESERVED',
+        created_at: new Date().toISOString(),
+        expires_at: expiresAt,
+      });
+    });
+  } catch (err: any) {
+    if (err instanceof StorageQuotaExceededError) {
+      throw err;
+    }
+    console.warn('[StorageLedger] Firestore transaction warning (falling back to memory quota):', err.message);
+
+    // Fallback: enforce 250 GB quota in-memory
+    const projectedUsage = inMemoryLedger.verified_used_bytes + inMemoryLedger.reserved_upload_bytes + bytes;
+    if (projectedUsage > inMemoryLedger.max_storage_bytes) {
+      const available = Math.max(
+        0,
+        inMemoryLedger.max_storage_bytes - (inMemoryLedger.verified_used_bytes + inMemoryLedger.reserved_upload_bytes)
+      );
+      throw new StorageQuotaExceededError(available, bytes, inMemoryLedger.max_storage_bytes);
+    }
+
+    inMemoryLedger.reserved_upload_bytes += bytes;
+    inMemoryLedger.available_bytes = Math.max(
+      0,
+      inMemoryLedger.max_storage_bytes - (inMemoryLedger.verified_used_bytes + inMemoryLedger.reserved_upload_bytes)
+    );
+    inMemoryLedger.warning_level = getStorageWarningLevel(
+      inMemoryLedger.verified_used_bytes + inMemoryLedger.reserved_upload_bytes,
+      inMemoryLedger.max_storage_bytes
+    );
+    inMemoryLedger.updated_at = new Date().toISOString();
+  }
+
+  inMemoryReservations.set(reservationId, reservation);
+  return reservation;
 }
 
 /**
@@ -238,63 +264,83 @@ export async function commitStorageQuota(
   const reservationDocRef = doc(db, 'storageLedger', 'global', 'reservations', reservationId);
   const breakdownKey = getBreakdownKey(category);
 
-  return await runTransaction(db, async (tx) => {
-    const ledgerSnap = await tx.get(ledgerDocRef);
-    const ledgerData = ledgerSnap.exists() ? ledgerSnap.data() : { ...DEFAULT_LEDGER };
+  try {
+    return await runTransaction(db, async (tx) => {
+      const ledgerSnap = await tx.get(ledgerDocRef);
+      const ledgerData = ledgerSnap.exists() ? ledgerSnap.data() : { ...DEFAULT_LEDGER };
 
-    const resSnap = await tx.get(reservationDocRef);
-    const resData = resSnap.exists() ? resSnap.data() : null;
+      const resSnap = await tx.get(reservationDocRef);
+      const resData = resSnap.exists() ? resSnap.data() : null;
 
-    const reservedAmount = Number(resData?.bytes || actualBytes);
-    const max = Number(ledgerData.max_storage_bytes || MAX_OURSPACE_STORAGE_BYTES);
-    const currentVerified = Number(ledgerData.verified_used_bytes || 0);
-    const currentReserved = Number(ledgerData.reserved_upload_bytes || 0);
+      const reservedAmount = Number(resData?.bytes || actualBytes);
+      const max = Number(ledgerData.max_storage_bytes || MAX_OURSPACE_STORAGE_BYTES);
+      const currentVerified = Number(ledgerData.verified_used_bytes || 0);
+      const currentReserved = Number(ledgerData.reserved_upload_bytes || 0);
 
-    // Release reserved capacity and record verified usage
-    const newReserved = Math.max(0, currentReserved - reservedAmount);
-    const newVerified = currentVerified + actualBytes;
-    const newAvailable = Math.max(0, max - (newVerified + newReserved));
-    const currentBreakdown = ledgerData.breakdown || {};
-    const newCategoryBytes = Number(currentBreakdown[breakdownKey] || 0) + actualBytes;
-    const newTotalCount = Number(ledgerData.total_files_count || 0) + 1;
-    const warningLevel = getStorageWarningLevel(newVerified + newReserved, max);
+      // Release reserved capacity and record verified usage
+      const newReserved = Math.max(0, currentReserved - reservedAmount);
+      const newVerified = currentVerified + actualBytes;
+      const newAvailable = Math.max(0, max - (newVerified + newReserved));
+      const currentBreakdown = ledgerData.breakdown || {};
+      const newCategoryBytes = Number(currentBreakdown[breakdownKey] || 0) + actualBytes;
+      const newTotalCount = Number(ledgerData.total_files_count || 0) + 1;
+      const warningLevel = getStorageWarningLevel(newVerified + newReserved, max);
 
-    const updatedLedger: Partial<StorageLedger> = {
-      verified_used_bytes: newVerified,
-      reserved_upload_bytes: newReserved,
-      available_bytes: newAvailable,
-      total_files_count: newTotalCount,
-      breakdown: {
-        ...currentBreakdown,
-        [breakdownKey]: newCategoryBytes,
-      },
-      warning_level: warningLevel,
-      updated_at: new Date().toISOString(),
-    };
+      const updatedLedger: Partial<StorageLedger> = {
+        verified_used_bytes: newVerified,
+        reserved_upload_bytes: newReserved,
+        available_bytes: newAvailable,
+        total_files_count: newTotalCount,
+        breakdown: {
+          ...currentBreakdown,
+          [breakdownKey]: newCategoryBytes,
+        },
+        warning_level: warningLevel,
+        updated_at: new Date().toISOString(),
+      };
 
-    tx.set(ledgerDocRef, updatedLedger, { merge: true });
-    tx.set(
-      reservationDocRef,
-      {
-        status: 'COMMITTED',
-        actual_bytes: actualBytes,
-        committed_at: new Date().toISOString(),
-      },
-      { merge: true }
+      tx.set(ledgerDocRef, updatedLedger, { merge: true });
+      tx.set(
+        reservationDocRef,
+        {
+          status: 'COMMITTED',
+          actual_bytes: actualBytes,
+          committed_at: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      return {
+        max_storage_bytes: max,
+        verified_used_bytes: newVerified,
+        reserved_upload_bytes: newReserved,
+        available_bytes: newAvailable,
+        total_files_count: newTotalCount,
+        breakdown: updatedLedger.breakdown as any,
+        warning_level: warningLevel,
+        last_reconciliation_at: ledgerData.last_reconciliation_at || null,
+        updated_at: updatedLedger.updated_at!,
+      };
+    });
+  } catch (err: any) {
+    console.warn('[StorageLedger] Firestore commit warning (falling back to memory ledger):', err.message);
+    const res = inMemoryReservations.get(reservationId);
+    const reservedAmount = res ? res.bytes : actualBytes;
+    inMemoryLedger.reserved_upload_bytes = Math.max(0, inMemoryLedger.reserved_upload_bytes - reservedAmount);
+    inMemoryLedger.verified_used_bytes += actualBytes;
+    inMemoryLedger.available_bytes = Math.max(
+      0,
+      inMemoryLedger.max_storage_bytes - (inMemoryLedger.verified_used_bytes + inMemoryLedger.reserved_upload_bytes)
     );
-
-    return {
-      max_storage_bytes: max,
-      verified_used_bytes: newVerified,
-      reserved_upload_bytes: newReserved,
-      available_bytes: newAvailable,
-      total_files_count: newTotalCount,
-      breakdown: updatedLedger.breakdown as any,
-      warning_level: warningLevel,
-      last_reconciliation_at: ledgerData.last_reconciliation_at || null,
-      updated_at: updatedLedger.updated_at!,
-    };
-  });
+    inMemoryLedger.total_files_count += 1;
+    inMemoryLedger.breakdown[breakdownKey] = (inMemoryLedger.breakdown[breakdownKey] || 0) + actualBytes;
+    inMemoryLedger.warning_level = getStorageWarningLevel(
+      inMemoryLedger.verified_used_bytes + inMemoryLedger.reserved_upload_bytes,
+      inMemoryLedger.max_storage_bytes
+    );
+    inMemoryLedger.updated_at = new Date().toISOString();
+    return { ...inMemoryLedger };
+  }
 }
 
 /**

@@ -276,7 +276,13 @@ export function InAppCameraModal({
       await onConfirmPhoto(originalFile, thumbnailFile, photoDimensions, caption.trim() || undefined);
       onClose();
     } catch (err: unknown) {
-      setCameraError(err instanceof Error ? err.message : 'Failed to send photograph.');
+      let msg = err instanceof Error ? err.message : 'Failed to send photograph.';
+      if (msg.includes('PERMISSION_DENIED') || msg.includes('Missing or insufficient permissions')) {
+        msg = 'Storage Ledger permission warning. Please ensure Firestore rules are updated in Firebase Console, or reconnect your session.';
+      } else if (msg.includes('Central Google Drive') || msg.includes('Google Drive is not connected')) {
+        msg = 'Google Drive is not connected yet. Please visit the 250 GB Storage Manager to connect your central Google account.';
+      }
+      setCameraError(msg);
       setIsSending(false);
     }
   };
@@ -339,13 +345,27 @@ export function InAppCameraModal({
                 <AlertCircle className="w-8 h-8" />
               </div>
               <p className="text-sm font-semibold text-white">{cameraError}</p>
-              <button
-                type="button"
-                onClick={startCamera}
-                className="mt-2 px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition-all shadow-md"
-              >
-                Try Again
-              </button>
+              <div className="flex items-center gap-2 mt-2">
+                {capturedPhotoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setCameraError(null)}
+                    className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition-all shadow-md"
+                  >
+                    Dismiss
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCameraError(null);
+                    startCamera();
+                  }}
+                  className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition-all shadow-md"
+                >
+                  {capturedPhotoUrl ? 'Retake Photo' : 'Try Again'}
+                </button>
+              </div>
             </div>
           ) : capturedPhotoUrl ? (
             /* Still Photo Review */
